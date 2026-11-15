@@ -9,8 +9,6 @@
 -- exactos que registraste en Auth. Define las contraseñas en Supabase, nunca aquí.
 -- Ejecutar después de instalar supabase_rassa.sql, en un proyecto de pruebas.
 
-begin;
-
 -- Asegura que el trigger reconozca las sesiones SQL administrativas de Supabase.
 -- La app sigue necesitando un JWT service_role o un administrador para cambiar roles.
 create or replace function public.proteger_cambio_rol()
@@ -27,73 +25,59 @@ begin
 end;
 $$;
 
-create temporary table usuarios_prueba_seed (
-  email text primary key,
-  rol text not null check (rol in ('administrador','vendedor','agricultor','comprador')),
-  nombres text not null,
-  apellido_paterno text not null
-) on commit drop;
-
-insert into usuarios_prueba_seed (email, rol, nombres, apellido_paterno) values
-  ('admin-demo@rassa.com',      'administrador', 'Admin',      'Demo'),
-  ('vendedor-demo@rassa.com',   'vendedor',      'Vendedor',   'Demo'),
-  ('agricultor-demo@rassa.com', 'agricultor',    'Agricultor', 'Demo'),
-  ('comprador-demo@rassa.com',  'comprador',     'Comprador',  'Demo');
-
+-- Un bloque DO mantiene validaciones y actualizaciones en una sola sentencia,
+-- sin depender de tablas temporales ni de que el editor conserve una sesión.
 do $$
 declare
-  faltantes text;
+  demo record;
+  usuario_id uuid;
+  rol_id_demo smallint;
 begin
-  select string_agg(s.email, ', ' order by s.email)
-    into faltantes
-  from usuarios_prueba_seed s
-  left join auth.users u on lower(u.email) = lower(s.email)
-  where u.id is null;
+  for demo in
+    select * from (values
+      ('admin-demo@rassa.com',      'administrador', 'Admin',      'Demo'),
+      ('vendedor-demo@rassa.com',   'vendedor',      'Vendedor',   'Demo'),
+      ('agricultor-demo@rassa.com', 'agricultor',    'Agricultor', 'Demo'),
+      ('comprador-demo@rassa.com',  'comprador',     'Comprador',  'Demo')
+    ) as cuentas(email, rol, nombres, apellido_paterno)
+  loop
+    select u.id into usuario_id
+    from auth.users u
+    where lower(u.email) = lower(demo.email);
 
-  if faltantes is not null then
-    raise exception 'Crea primero estas cuentas en Supabase Auth: %', faltantes;
-  end if;
+    if usuario_id is null then
+      raise exception 'Crea primero la cuenta % en Supabase Auth', demo.email;
+    end if;
 
-  select string_agg(s.email, ', ' order by s.email)
-    into faltantes
-  from usuarios_prueba_seed s
-  join auth.users u on lower(u.email) = lower(s.email)
-  left join public.perfiles p on p.id = u.id
-  where p.id is null;
+    if not exists (select 1 from public.perfiles p where p.id = usuario_id) then
+      raise exception 'No existe el perfil de %. Revisa el trigger auth_user_crear_perfil', demo.email;
+    end if;
 
-  if faltantes is not null then
-    raise exception 'No se generó el perfil para estas cuentas; revisa el trigger auth_user_crear_perfil: %', faltantes;
-  end if;
+    select r.id into rol_id_demo from public.roles r where r.nombre = demo.rol;
+    if rol_id_demo is null then
+      raise exception 'No existe el rol % en public.roles', demo.rol;
+    end if;
 
-  select string_agg(distinct s.rol, ', ' order by s.rol)
-    into faltantes
-  from usuarios_prueba_seed s
-  left join public.roles r on r.nombre = s.rol
-  where r.id is null;
-
-  if faltantes is not null then
-    raise exception 'No existen estos roles en public.roles: %', faltantes;
-  end if;
+    update public.perfiles p
+    set rol_id = rol_id_demo,
+        nombres = demo.nombres,
+        apellido_paterno = demo.apellido_paterno,
+        activo = true,
+        actualizado_en = now()
+    where p.id = usuario_id;
+  end loop;
 end;
 $$;
 
-update public.perfiles p
-set rol_id = r.id,
-    nombres = s.nombres,
-    apellido_paterno = s.apellido_paterno,
-    activo = true,
-    actualizado_en = now()
-from auth.users u
-join usuarios_prueba_seed s on lower(s.email) = lower(u.email)
-join public.roles r on r.nombre = s.rol
-where p.id = u.id;
-
--- Resultado de verificación antes de confirmar la transacción.
+-- Resultado de verificación.
 select u.email, r.nombre as rol, p.activo
 from auth.users u
 join public.perfiles p on p.id = u.id
 join public.roles r on r.id = p.rol_id
-join usuarios_prueba_seed s on lower(s.email) = lower(u.email)
+join (values
+  ('admin-demo@rassa.com'),
+  ('vendedor-demo@rassa.com'),
+  ('agricultor-demo@rassa.com'),
+  ('comprador-demo@rassa.com')
+) as cuentas(email) on lower(cuentas.email) = lower(u.email)
 order by r.nombre;
-
-commit;
