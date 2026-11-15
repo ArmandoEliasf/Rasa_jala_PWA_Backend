@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
+import { AuditAdmin, ChatAdmin, PaymentsAdmin, PickupsAdmin, SettlementsAdmin, WasteAdmin } from './AdminOperations'
 import type { AdminSection, Profile, RoleName } from './types'
 
 const navGroups: { label: string; items: { id: AdminSection; label: string; icon: LucideIcon }[] }[] = [
@@ -409,6 +410,12 @@ function AdminModule({ section, profileId }: { section: Exclude<AdminSection, 'i
   if (section === 'publicaciones') return <WeeklyCyclesAdmin />
   if (section === 'familias') return <FamiliesAdmin />
   if (section === 'pedidos') return <OrdersAdmin />
+  if (section === 'pagos') return <PaymentsAdmin />
+  if (section === 'recolecciones') return <PickupsAdmin />
+  if (section === 'mermas') return <WasteAdmin />
+  if (section === 'liquidaciones') return <SettlementsAdmin />
+  if (section === 'chat') return <ChatAdmin />
+  if (section === 'auditoria') return <AuditAdmin />
   return <>
     <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><Icon size={14} /></span>{meta.eyebrow}</div><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="module-toolbar"><button className="secondary-button" onClick={() => setRefreshKey((value) => value + 1)}><Activity size={15} /> Actualizar</button><button className="primary-button module-action" onClick={exportCsv} disabled={!filteredRows.length}><Download size={15} /> Exportar CSV</button></div></div>
     {loadError && <div className="inline-notice"><CircleHelp size={16} />{loadError}</div>}
