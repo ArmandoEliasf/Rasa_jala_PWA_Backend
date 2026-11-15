@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="900" viewBox="0 0 1500 900" role="img" aria-labelledby="title desc">
+  <title id="title">Arquitectura de la PWA Rassa con React, TypeScript y Supabase</title>
+  <desc id="desc">Diagrama de usuarios que acceden a una PWA React y TypeScript; Supabase Auth entrega una sesión, RLS protege PostgreSQL, Storage conserva imágenes y Realtime actualiza chat y pedidos. Funciones de servidor realizan operaciones críticas.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1 L11 6 L1 11 z" fill="#42627f"/></marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1 L11 6 L1 11 z" fill="#16836b"/></marker>
+    <style>
+      .title{font:700 34px Arial,sans-serif;fill:#14324b}.sub{font:18px Arial,sans-serif;fill:#547087}.h{font:700 20px Arial,sans-serif;fill:#173b55}.t{font:16px Arial,sans-serif;fill:#29485e}.small{font:14px Arial,sans-serif;fill:#537085}.box{fill:#fff;stroke:#9bb5c8;stroke-width:2;rx:16}.blue{fill:#edf6fc;stroke:#4b9bd2;stroke-width:2;rx:20}.green{fill:#eaf7f1;stroke:#4ca887;stroke-width:2;rx:20}.gold{fill:#fff6e5;stroke:#e2ab45;stroke-width:2;rx:20}.line{stroke:#42627f;stroke-width:3;fill:none;marker-end:url(#arrow)}.live{stroke:#16836b;stroke-width:3;fill:none;stroke-dasharray:9 6;marker-end:url(#arrowGreen)}
+    </style>
+  </defs>
+  <rect width="1500" height="900" fill="#f7fafc"/>
+  <text x="750" y="58" text-anchor="middle" class="title">RASSA · Arquitectura propuesta de la PWA</text>
+  <text x="750" y="91" text-anchor="middle" class="sub">React + TypeScript en la interfaz · Supabase como plataforma de datos y servicios</text>
+
+  <rect x="38" y="190" width="235" height="410" class="box"/>
+  <text x="155" y="226" text-anchor="middle" class="h">Personas usuarias</text>
+  <rect x="66" y="255" width="180" height="62" class="blue"/><text x="156" y="293" text-anchor="middle" class="t">Administrador</text>
+  <rect x="66" y="335" width="180" height="62" class="blue"/><text x="156" y="373" text-anchor="middle" class="t">Vendedor</text>
+  <rect x="66" y="415" width="180" height="62" class="blue"/><text x="156" y="453" text-anchor="middle" class="t">Comprador</text>
+  <rect x="66" y="495" width="180" height="62" class="blue"/><text x="156" y="533" text-anchor="middle" class="t">Agricultor</text>
+
+  <path d="M273 395 H326" class="line"/>
+  <rect x="330" y="170" width="395" height="450" class="blue"/>
+  <text x="527" y="207" text-anchor="middle" class="h">PWA · React + TypeScript</text>
+  <rect x="361" y="235" width="333" height="72" class="box"/><text x="527" y="265" text-anchor="middle" class="t">Rutas y vistas por rol</text><text x="527" y="289" text-anchor="middle" class="small">Paneles · catálogo · pedidos · chat</text>
+  <rect x="361" y="328" width="333" height="72" class="box"/><text x="527" y="358" text-anchor="middle" class="t">Componentes reutilizables</text><text x="527" y="382" text-anchor="middle" class="small">Formularios · tarjetas · navegación</text>
+  <rect x="361" y="421" width="333" height="72" class="box"/><text x="527" y="451" text-anchor="middle" class="t">Cliente Supabase</text><text x="527" y="475" text-anchor="middle" class="small">Usa la sesión del usuario en cada solicitud</text>
+  <rect x="361" y="514" width="333" height="72" class="box"/><text x="527" y="544" text-anchor="middle" class="t">TypeScript</text><text x="527" y="568" text-anchor="middle" class="small">Tipos para perfiles, productos, pedidos y mensajes</text>
+
+  <path d="M725 334 H780" class="line"/>
+  <rect x="784" y="145" width="675" height="520" class="green"/>
+  <text x="1121" y="183" text-anchor="middle" class="h">Supabase · servicios administrados</text>
+
+  <rect x="817" y="217" width="265" height="92" class="box"/><text x="949" y="251" text-anchor="middle" class="t">Supabase Auth</text><text x="949" y="278" text-anchor="middle" class="small">Inicio de sesión · JWT · sesión</text>
+  <rect x="1110" y="217" width="311" height="92" class="gold"/><text x="1265" y="251" text-anchor="middle" class="t">RLS · reglas de acceso</text><text x="1265" y="278" text-anchor="middle" class="small">¿Quién puede leer o cambiar cada fila?</text>
+  <path d="M1082 263 H1108" class="line"/>
+
+  <rect x="817" y="353" width="330" height="125" class="box"/><text x="982" y="389" text-anchor="middle" class="t">PostgreSQL</text><text x="982" y="418" text-anchor="middle" class="small">Perfiles y roles · catálogo · publicaciones</text><text x="982" y="444" text-anchor="middle" class="small">Pedidos · pagos · conversaciones · mensajes</text>
+  <rect x="1171" y="353" width="250" height="125" class="box"/><text x="1296" y="389" text-anchor="middle" class="t">Storage</text><text x="1296" y="418" text-anchor="middle" class="small">Fotos de productos</text><text x="1296" y="444" text-anchor="middle" class="small">Adjuntos del chat</text>
+  <path d="M1265 309 V334 H982 V351" class="line"/>
+  <path d="M1265 309 V334 H1296 V351" class="line"/>
+
+  <rect x="817" y="520" width="604" height="104" class="box"/><text x="1119" y="557" text-anchor="middle" class="t">Funciones de servidor / funciones SQL</text><text x="1119" y="585" text-anchor="middle" class="small">Checkout atómico · validar stock, precio y permisos antes de confirmar</text>
+  <path d="M817 572 H775 V455 H727" class="line"/>
+  <path d="M1119 520 V481" class="line"/>
+
+  <rect x="330" y="710" width="1129" height="126" class="box"/>
+  <text x="894" y="747" text-anchor="middle" class="h">Flujo en tiempo real</text>
+  <rect x="376" y="766" width="250" height="48" class="blue"/><text x="501" y="796" text-anchor="middle" class="t">Chat · canal privado</text>
+  <rect x="692" y="766" width="275" height="48" class="green"/><text x="829" y="796" text-anchor="middle" class="t">Supabase Realtime</text>
+  <rect x="1033" y="766" width="365" height="48" class="blue"/><text x="1215" y="796" text-anchor="middle" class="t">Mensajes y estados actualizados</text>
+  <path d="M626 790 H690" class="live"/><path d="M967 790 H1031" class="live"/>
+  <path d="M879 710 V666" class="live"/>
+  <text x="750" y="872" text-anchor="middle" class="small">RLS debe proteger todas las tablas expuestas. Nunca poner la clave secreta service_role en el código del navegador.</text>
+</svg>
