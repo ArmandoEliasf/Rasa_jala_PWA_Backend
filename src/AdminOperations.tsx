@@ -24,6 +24,104 @@ function useReload() {
   return [reload, () => setReload((n) => n + 1)] as const
 }
 
+const roleLabels: Record<string, string> = {
+  administrador: 'Administrador', vendedor: 'Vendedor', agricultor: 'Agricultor', comprador: 'Comprador',
+}
+
+export function UsersAdmin({ profileId }: { profileId: string }) {
+  const [reload, refresh] = useReload()
+  const [users, setUsers] = useState<Row[]>([])
+  const [roles, setRoles] = useState<string[]>([])
+  const [email, setEmail] = useState('')
+  const [nombres, setNombres] = useState('')
+  const [apellidoPaterno, setApellidoPaterno] = useState('')
+  const [apellidoMaterno, setApellidoMaterno] = useState('')
+  const [telefono, setTelefono] = useState('')
+  const [rol, setRol] = useState('comprador')
+  const [search, setSearch] = useState('')
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!supabase) return
+    let live = true
+    setError('')
+    void Promise.all([
+      supabase.functions.invoke('admin-users', { body: { action: 'list' } }),
+      supabase.from('roles').select('nombre').order('id'),
+    ]).then(([result, roleResult]) => {
+      if (!live) return
+      if (result.error || result.data?.error) setError(result.data?.error ?? result.error?.message ?? 'No se pudieron cargar las cuentas')
+      else setUsers((result.data?.users ?? []) as Row[])
+      setRoles((roleResult.data ?? []).map((item) => item.nombre))
+    })
+    return () => { live = false }
+  }, [reload])
+
+  const invite = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase) return
+    setSaving(true); setError(''); setMessage('')
+    const { data, error: invokeError } = await supabase.functions.invoke('admin-users', {
+      body: { action: 'invite', email, nombres, apellido_paterno: apellidoPaterno, apellido_materno: apellidoMaterno, telefono, rol },
+    })
+    if (invokeError || data?.error) setError(data?.error ?? invokeError?.message ?? 'No se pudo enviar la invitación')
+    else {
+      setMessage(data.message ?? 'Invitación enviada. La persona recibirá un enlace para crear su contraseña.')
+      setEmail(''); setNombres(''); setApellidoPaterno(''); setApellidoMaterno(''); setTelefono('')
+      refresh()
+    }
+    setSaving(false)
+  }
+
+  const update = async (user: Row, changes: { rol?: string; activo?: boolean }) => {
+    if (!supabase || user.id === profileId) return
+    const nextRole = changes.rol ?? user.rol
+    const nextActive = changes.activo ?? user.activo
+    const roleId = Number(user.rol_id)
+    const selectedRole = roles.includes(nextRole) ? nextRole : 'comprador'
+    const { data: roleRow, error: roleError } = await supabase.from('roles').select('id').eq('nombre', selectedRole).single()
+    if (roleError || !roleRow) { setError(roleError?.message ?? 'No se encontró el rol'); return }
+    setSaving(true); setError(''); setMessage('')
+    const { error: rpcError } = await supabase.rpc('admin_actualizar_usuario', {
+      p_usuario_id: user.id, p_rol_id: roleRow.id ?? roleId, p_activo: nextActive,
+    })
+    if (rpcError) setError(rpcError.message)
+    else {
+      if (changes.activo !== undefined) {
+        const { data, error: authError } = await supabase.functions.invoke('admin-users', {
+          body: { action: 'set-access', user_id: user.id, active: nextActive },
+        })
+        if (authError || data?.error) setError(`El perfil cambió, pero no se pudo actualizar el bloqueo de Supabase Auth: ${data?.error ?? authError?.message}`)
+        else setMessage('Cuenta actualizada y acceso de autenticación sincronizado.')
+      } else setMessage('Rol actualizado.')
+      refresh()
+    }
+    setSaving(false)
+  }
+
+  const filtered = users.filter((user) => `${user.nombres} ${user.apellido_paterno} ${user.apellido_materno ?? ''} ${user.email} ${user.rol}`.toLowerCase().includes(search.trim().toLowerCase()))
+  return <>
+    <ModuleHeader eyebrow="ACCESO AL SISTEMA" heading="Usuarios y roles" description="Invita personas por correo y administra roles y acceso." onRefresh={refresh} />
+    <Notice error={error} message={message} />
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Invitar usuario</h3><p>La persona recibirá un enlace para definir su contraseña; nunca se captura aquí.</p></div></div>
+      <form className="module-form" onSubmit={(event) => void invite(event)}>
+        <label>Correo electrónico<input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        <label>Rol inicial<select value={rol} onChange={(event) => setRol(event.target.value)}>{roles.map((item) => <option key={item} value={item}>{roleLabels[item] ?? item}</option>)}</select></label>
+        <label>Nombre(s)<input required value={nombres} onChange={(event) => setNombres(event.target.value)} /></label>
+        <label>Apellido paterno<input required value={apellidoPaterno} onChange={(event) => setApellidoPaterno(event.target.value)} /></label>
+        <label>Apellido materno<input value={apellidoMaterno} onChange={(event) => setApellidoMaterno(event.target.value)} /></label>
+        <label>Teléfono<input type="tel" value={telefono} onChange={(event) => setTelefono(event.target.value)} /></label>
+        <button className="primary-button" disabled={saving}><Plus size={15} /> Enviar invitación</button>
+      </form>
+    </div>
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Cuentas</h3><p>{filtered.length} de {users.length} perfiles</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nombre, correo o rol" /></label></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Acceso</th><th>Acciones</th></tr></thead><tbody>{filtered.map((user) => <tr key={user.id}><td>{`${user.nombres} ${user.apellido_paterno} ${user.apellido_materno ?? ''}`}</td><td>{user.email || '—'}</td><td><select aria-label={`Rol de ${user.email}`} value={user.rol} disabled={saving || user.id === profileId} onChange={(event) => void update(user, { rol: event.target.value })}>{roles.map((item) => <option key={item} value={item}>{roleLabels[item] ?? item}</option>)}</select></td><td>{user.activo ? 'Activo' : 'Desactivado'}</td><td><button className={`status-toggle ${user.activo ? 'is-active' : ''}`} disabled={saving || user.id === profileId} onClick={() => void update(user, { activo: !user.activo })}>{user.activo ? 'Desactivar' : 'Activar'}</button></td></tr>)}</tbody></table>{!filtered.length && <Empty>{search ? 'No hay coincidencias' : 'No hay perfiles para mostrar'}</Empty>}</div>
+    </div>
+  </>
+}
+
 export function PaymentsAdmin() {
   const [reload, refresh] = useReload()
   const [payments, setPayments] = useState<Row[]>([])
@@ -122,12 +220,72 @@ export function WasteAdmin() {
 }
 
 export function SettlementsAdmin() {
-  const [reload,refresh]=useReload();const[rows,setRows]=useState<Row[]>([]);const[people,setPeople]=useState<Record<string,string>>({});const[start,setStart]=useState('');const[end,setEnd]=useState('');const[search,setSearch]=useState('');const[error,setError]=useState('');const[message,setMessage]=useState('');const[saving,setSaving]=useState(false)
-  useEffect(()=>{if(!supabase)return;let live=true;void Promise.all([supabase.from('liquidaciones').select('*').order('periodo_inicio',{ascending:false}).limit(300),supabase.from('perfiles').select('id,nombres,apellido_paterno')]).then(([r,p])=>{if(!live)return;if(r.error)setError(r.error.message);setRows((r.data??[]) as Row[]);setPeople(Object.fromEntries((p.data??[]).map(x=>[x.id,`${x.nombres} ${x.apellido_paterno}`]))) });return()=>{live=false}},[reload])
-  const generate=async(event:FormEvent)=>{event.preventDefault();if(!supabase)return;setSaving(true);setError('');setMessage('');const{data,error:rpcError}=await supabase.rpc('admin_generar_liquidaciones',{p_inicio:start,p_fin:end});if(rpcError)setError(`${rpcError.message}. Ejecuta sql/admin_operations_supabase.sql en Supabase.`);else{setMessage(`${data} liquidación(es) generada(s) con ventas entregadas y comisión del 10%.`);refresh()}setSaving(false)}
-  const pay=async(id:string)=>{if(!supabase)return;setSaving(true);setError('');const{error:e}=await supabase.rpc('admin_marcar_liquidacion_pagada',{p_liquidacion_id:id});if(e)setError(e.message);else{setMessage('Liquidación marcada como pagada.');refresh()}setSaving(false)}
-  const filtered=rows.filter(r=>(people[r.agricultor_id]??'').toLowerCase().includes(search.toLowerCase()))
-  return <><ModuleHeader eyebrow="PAGOS A PRODUCTORES" heading="Liquidaciones" description="Calcula liquidaciones a partir de ventas entregadas y registra su pago." onRefresh={refresh}/><Notice error={error} message={message}/><div className="panel data-preview"><div className="panel-heading"><div><h3>Calcular periodo</h3><p>Se consideran pedidos entregados; la comisión vigente es 10%.</p></div></div><form className="module-form" onSubmit={e=>void generate(e)}><label>Desde<input type="date" required value={start} onChange={e=>setStart(e.target.value)}/></label><label>Hasta<input type="date" required value={end} onChange={e=>setEnd(e.target.value)}/></label><button className="primary-button" disabled={saving}><CreditCard size={15}/> Generar liquidaciones</button></form></div><div className="panel data-preview"><div className="panel-heading"><div><h3>Liquidaciones</h3><p>{filtered.length} registros</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Agricultor"/></label></div><div className="table-scroll"><table className="data-table"><thead><tr><th>Agricultor</th><th>Periodo</th><th>Ventas</th><th>Comisión</th><th>A liquidar</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{filtered.map(r=><tr key={r.id}><td>{people[r.agricultor_id]??'—'}</td><td>{dateText(r.periodo_inicio)} – {dateText(r.periodo_fin)}</td><td>{money(Number(r.ventas))}</td><td>{money(Number(r.comision))}</td><td>{money(Number(r.monto_liquidar))}</td><td>{title(r.estado)}</td><td>{['pendiente','parcial'].includes(r.estado)?<button className="status-toggle is-active" disabled={saving} onClick={()=>void pay(r.id)}>Marcar pagada</button>:'—'}</td></tr>)}</tbody></table>{!filtered.length&&<Empty/>}</div></div></>
+  const [reload, refresh] = useReload()
+  const [rows, setRows] = useState<Row[]>([])
+  const [people, setPeople] = useState<Record<string, string>>({})
+  const [paymentTypes, setPaymentTypes] = useState<Row[]>([])
+  const [paymentDetails, setPaymentDetails] = useState<Record<string, Row>>({})
+  const [start, setStart] = useState('')
+  const [end, setEnd] = useState('')
+  const [search, setSearch] = useState('')
+  const [payingId, setPayingId] = useState('')
+  const [paymentType, setPaymentType] = useState('')
+  const [reference, setReference] = useState('')
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!supabase) return
+    let live = true
+    void Promise.all([
+      supabase.from('liquidaciones').select('*').order('periodo_inicio', { ascending: false }).limit(300),
+      supabase.from('perfiles').select('id,nombres,apellido_paterno'),
+      supabase.from('tipos_pago').select('*').eq('activo', true).order('id'),
+      supabase.from('pagos_liquidacion').select('*').order('creado_en', { ascending: false }),
+    ]).then(([settlements, profiles, types, payments]) => {
+      if (!live) return
+      if (settlements.error || types.error || payments.error) setError((settlements.error || types.error || payments.error)?.message ?? '')
+      setRows((settlements.data ?? []) as Row[])
+      setPeople(Object.fromEntries((profiles.data ?? []).map((person) => [person.id, `${person.nombres} ${person.apellido_paterno}`])))
+      setPaymentTypes((types.data ?? []) as Row[])
+      setPaymentDetails(Object.fromEntries((payments.data ?? []).map((payment) => [payment.liquidacion_id, payment])))
+      if (!paymentType && types.data?.[0]) setPaymentType(String(types.data[0].id))
+    })
+    return () => { live = false }
+  }, [reload])
+
+  const generate = async (event: FormEvent) => {
+    event.preventDefault(); if (!supabase) return
+    setSaving(true); setError(''); setMessage('')
+    const { data, error: rpcError } = await supabase.rpc('admin_generar_liquidaciones', { p_inicio: start, p_fin: end })
+    if (rpcError) setError(`${rpcError.message}. Ejecuta sql/admin_operations_supabase.sql en Supabase.`)
+    else { setMessage(`${data} liquidación(es) generada(s) con ventas entregadas y comisión del 10%.`); refresh() }
+    setSaving(false)
+  }
+
+  const pay = async (id: string) => {
+    if (!supabase) return
+    setSaving(true); setError(''); setMessage('')
+    const { error: rpcError } = await supabase.rpc('admin_pagar_liquidacion', {
+      p_liquidacion_id: id, p_tipo_pago_id: Number(paymentType), p_referencia: reference || null,
+    })
+    if (rpcError) setError(`${rpcError.message}. Ejecuta sql/admin_security_accounting.sql en Supabase.`)
+    else { setMessage('Pago registrado con método y referencia.'); setPayingId(''); setReference(''); refresh() }
+    setSaving(false)
+  }
+
+  const filtered = rows.filter((row) => (people[row.agricultor_id] ?? '').toLowerCase().includes(search.toLowerCase()))
+  return <>
+    <ModuleHeader eyebrow="PAGOS A PRODUCTORES" heading="Liquidaciones" description="Calcula liquidaciones y registra el pago al agricultor." onRefresh={refresh} />
+    <Notice error={error} message={message} />
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Calcular periodo</h3><p>Ventas entregadas; comisión vigente del 10%. Las líneas liquidadas no se repiten.</p></div></div>
+      <form className="module-form" onSubmit={(event) => void generate(event)}><label>Desde<input type="date" required value={start} onChange={(event) => setStart(event.target.value)} /></label><label>Hasta<input type="date" required value={end} onChange={(event) => setEnd(event.target.value)} /></label><button className="primary-button" disabled={saving}><CreditCard size={15} /> Generar liquidaciones</button></form>
+    </div>
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Liquidaciones</h3><p>{filtered.length} registros</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Agricultor" /></label></div>
+      <div className="table-scroll"><table className="data-table"><thead><tr><th>Agricultor</th><th>Periodo</th><th>Ventas</th><th>Comisión</th><th>A liquidar</th><th>Estado</th><th>Pago</th></tr></thead><tbody>{filtered.map((row) => <tr key={row.id}><td>{people[row.agricultor_id] ?? '—'}</td><td>{dateText(row.periodo_inicio)} – {dateText(row.periodo_fin)}</td><td>{money(Number(row.ventas))}</td><td>{money(Number(row.comision))}</td><td>{money(Number(row.monto_liquidar))}</td><td>{title(row.estado)}</td><td>{['pendiente', 'parcial'].includes(row.estado) ? payingId === row.id ? <div className="settlement-payment"><select aria-label="Método de pago" value={paymentType} onChange={(event) => setPaymentType(event.target.value)}>{paymentTypes.map((type) => <option key={type.id} value={type.id}>{title(type.nombre)}</option>)}</select><input aria-label="Referencia de pago" placeholder="Referencia" value={reference} onChange={(event) => setReference(event.target.value)} /><button className="status-toggle is-active" disabled={saving} onClick={() => void pay(row.id)}>Confirmar</button><button className="status-toggle" onClick={() => setPayingId('')}>Cancelar</button></div> : <button className="status-toggle is-active" disabled={saving || !paymentTypes.length} onClick={() => setPayingId(row.id)}>Registrar pago</button> : paymentDetails[row.id] ? `${title(paymentTypes.find((type) => type.id === paymentDetails[row.id].tipo_pago_id)?.nombre ?? 'pago')} · ${money(Number(paymentDetails[row.id].monto))}` : '—'}</td></tr>)}</tbody></table>{!filtered.length && <Empty />}</div>
+    </div>
+  </>
 }
 
 export function AuditAdmin() {

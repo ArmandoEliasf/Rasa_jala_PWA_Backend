@@ -430,6 +430,9 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .
 .table-search { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; }
 .table-search input { width: min(220px, 42vw); height: 34px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 9px; background: var(--panel); color: var(--text); font-size: 10px; }
 .row-actions select { max-width: 120px; height: 29px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); color: var(--text); font-size: 9px; }
+.data-table td > select { max-width: 170px; min-height: 29px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 6px; background: var(--panel); color: var(--text); font: inherit; }
+.settlement-payment { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; min-width: 300px; }
+.settlement-payment input { width: 100px; min-height: 29px; border: 1px solid var(--line-strong); border-radius: 6px; padding: 4px 6px; background: var(--panel); color: var(--text); font: inherit; }
 .status-toggle { min-width: 76px; border: 1px solid var(--line-strong); border-radius: 999px; padding: 5px 8px; background: var(--panel-soft); color: var(--muted); font-size: 9px; font-weight: 700; cursor: pointer; }
 .status-toggle.is-active { border-color: #c6e1cd; background: var(--green-pale); color: var(--green-dark); }
 .status-toggle:disabled, .row-actions select:disabled { opacity: .55; cursor: not-allowed; }

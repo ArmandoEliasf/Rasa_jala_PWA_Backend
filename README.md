@@ -14,6 +14,38 @@ Usa un proyecto Supabase vacío y ejecuta `supabase_rassa.sql` en SQL Editor. Es
 
 El documento de diccionario asociado explica el esquema y sus reglas. La clave `service_role` no se utiliza en el frontend.
 
+### Actualizar la base de datos del panel
+
+En una base que ya contiene datos, **no vuelvas a ejecutar** `supabase_rassa.sql`: crea el esquema inicial. Aplica en SQL Editor, en este orden, las migraciones que aún no estén instaladas:
+
+1. `sql/admin_workflows_supabase.sql`
+2. `sql/admin_operations_supabase.sql`
+3. `sql/admin_security_accounting.sql`
+
+La última migración protege en la base de datos al último administrador activo, registra cambios administrativos sin guardar valores personales en auditoría y crea `pagos_liquidacion`.
+
+### Invitaciones de usuarios
+
+La creación segura de usuarios vive en una Supabase Edge Function. Nunca se expone la clave de servicio en React.
+
+1. Instala [Supabase CLI](https://supabase.com/docs/guides/cli) y autentícate con `supabase login`.
+2. Vincula el repositorio al proyecto con `supabase link --project-ref <project-ref>`.
+3. Define la URL que usarán los enlaces de invitación. Para probar localmente:
+
+   ```powershell
+   supabase secrets set APP_URL=http://localhost:5174
+   ```
+
+   Para invitaciones de producción, establece la URL pública de Netlify en `APP_URL`.
+4. Despliega la función:
+
+   ```powershell
+   supabase functions deploy admin-users
+   ```
+
+5. En Supabase **Authentication → URL Configuration**, añade la URL local (`http://localhost:5174/**`) y la URL pública de Netlify (`https://<sitio>.netlify.app/**`) a **Redirect URLs**.
+6. Configura SMTP en **Authentication → SMTP Settings** para la entrega confiable de invitaciones. La función autentica al administrador que llama, y solo utiliza la clave de servicio dentro del entorno Edge Function.
+
 Para preparar cuentas de prueba, sigue [`README_USUARIOS_DE_PRUEBA.md`](README_USUARIOS_DE_PRUEBA.md) y ejecuta [`usuarios_prueba_supabase.sql`](usuarios_prueba_supabase.sql) después de crear primero las cuentas en Supabase Auth.
 
 ## Configuración local
@@ -55,10 +87,14 @@ npm run dev
 - Edición del perfil personal (nombre, apellidos, teléfono y domicilio); el correo se muestra desde Auth y se cambia desde un flujo separado de Auth.
 - Resumen con conteos de perfiles, productos, pedidos y conversaciones.
 - Panel adaptable con navegación para usuarios, catálogo, ciclos, pedidos, familias/crédito, pagos/caja, recolecciones, mermas, liquidaciones, conversaciones y auditoría.
+- Invitaciones por correo desde el panel, con creación de usuario protegida en Edge Function y enlace para establecer contraseña.
+- Cambios de rol/estado con protección atómica del último administrador activo; desactivar una cuenta también suspende su acceso de Supabase Auth.
+- Auditoría automática de cambios en cuentas y operaciones, sin almacenar valores personales modificados.
+- Pagos de liquidación asociados al método, monto y referencia antes de cambiar su estado a pagada.
 - Tema claro y oscuro, recordado en el dispositivo.
 - Manifiesto y service worker PWA; cachea los recursos de la interfaz y las imágenes públicas. La edición de perfil y los datos administrativos requieren conexión en esta primera entrega.
 
-Las áreas administrativas que todavía no tienen formularios de gestión muestran una vista inicial conectada a la tabla y la lista de funciones prevista; no deben considerarse CRUD completos. Se irán conectando con los detalles del flujo administrativo y el proyecto Supabase del equipo.
+La PWA sigue requiriendo conexión para las operaciones administrativas; la cola offline de cambios y mensajes queda para una fase posterior.
 
 ## Modo sin conexión previsto
 

@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
-import { AuditAdmin, ChatAdmin, PaymentsAdmin, PickupsAdmin, SettlementsAdmin, WasteAdmin } from './AdminOperations'
+import { AuditAdmin, ChatAdmin, PaymentsAdmin, PickupsAdmin, SettlementsAdmin, UsersAdmin, WasteAdmin } from './AdminOperations'
 import type { AdminSection, Profile, RoleName } from './types'
 
 const navGroups: { label: string; items: { id: AdminSection; label: string; icon: LucideIcon }[] }[] = [
@@ -98,7 +98,8 @@ function App() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [checking, setChecking] = useState(true)
   const [authError, setAuthError] = useState('')
-  const [recoveryMode, setRecoveryMode] = useState(false)
+  const invitationFlow = new URLSearchParams(window.location.search).get('flow') === 'invite'
+  const [recoveryMode, setRecoveryMode] = useState(invitationFlow)
   const [active, setActive] = useState<AdminSection>('inicio')
   const [mobileNav, setMobileNav] = useState(false)
   const [online, setOnline] = useState(() => navigator.onLine)
@@ -130,7 +131,7 @@ function App() {
     const client = supabase
     if (!client) { setChecking(false); return }
     void client.auth.getSession().then(async ({ data }) => {
-      if (data.session?.user) {
+      if (data.session?.user && !invitationFlow) {
         try { await loadProfile(data.session.user.id, data.session.user.email ?? '') } catch (error) {
           await client.auth.signOut()
           setAuthError(error instanceof Error ? error.message : 'No se pudo cargar el perfil.')
@@ -139,11 +140,11 @@ function App() {
       setChecking(false)
     })
     const { data: { subscription } } = client.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true)
+      if (event === 'PASSWORD_RECOVERY' || (invitationFlow && event === 'SIGNED_IN')) setRecoveryMode(true)
       if (!session) setProfile(null)
     })
     return () => subscription.unsubscribe()
-  }, [loadProfile])
+  }, [invitationFlow, loadProfile])
 
   const signIn = async (email: string, password: string) => {
     if (!supabase) return
@@ -172,6 +173,7 @@ function App() {
     setRecoveryMode(false)
     setAuthError('Contraseña actualizada. Inicia sesión con tu nueva contraseña.')
     await supabase.auth.signOut()
+    if (invitationFlow) window.history.replaceState(null, '', window.location.pathname)
   }
 
   const signOut = async () => {
@@ -410,6 +412,7 @@ function AdminModule({ section, profileId }: { section: Exclude<AdminSection, 'i
   if (section === 'publicaciones') return <WeeklyCyclesAdmin />
   if (section === 'familias') return <FamiliesAdmin />
   if (section === 'pedidos') return <OrdersAdmin />
+  if (section === 'usuarios') return <UsersAdmin profileId={profileId} />
   if (section === 'pagos') return <PaymentsAdmin />
   if (section === 'recolecciones') return <PickupsAdmin />
   if (section === 'mermas') return <WasteAdmin />
