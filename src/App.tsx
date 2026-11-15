@@ -186,7 +186,7 @@ function App() {
       <section className="page-content" key={active}>
         {active === 'inicio' && <Dashboard profile={profile} setActive={setActive} online={online} />}
         {active === 'perfil' && <ProfilePage profile={profile} onProfileChange={setProfile} />}
-        {active !== 'inicio' && active !== 'perfil' && <AdminModule section={active} />}
+        {active !== 'inicio' && active !== 'perfil' && <AdminModule section={active} profileId={profile.id} />}
       </section>
       <footer className="page-footer"><span>© 2026 Rassa JALA</span><span><ShieldCheck size={13} /> Datos protegidos por permisos de acceso</span><a href="#ayuda"><CircleHelp size={14} /> Centro de ayuda</a></footer>
     </main>
@@ -289,30 +289,104 @@ function OperationItem({ icon: Icon, title, detail, tone, onClick }: { icon: typ
   return <button className="operation-row" onClick={onClick}><span className={`operation-icon ${tone}`}><Icon size={17} /></span><span className="operation-copy"><strong>{title}</strong><small>{detail}</small></span><span className="operation-status"><i /> Activo</span></button>
 }
 
-function AdminModule({ section }: { section: Exclude<AdminSection, 'inicio' | 'perfil'> }) {
+function AdminModule({ section, profileId }: { section: Exclude<AdminSection, 'inicio' | 'perfil'>; profileId: string }) {
   const meta = moduleCopy[section]
   const [count, setCount] = useState<number | null>(null)
   const [rows, setRows] = useState<Record<string, unknown>[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
+  const [search, setSearch] = useState('')
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [roles, setRoles] = useState<{ id: number; nombre: RoleName }[]>([])
+  const [message, setMessage] = useState('')
   useEffect(() => {
     if (!supabase) return
     let live = true
-    void supabase.from(meta.table).select('*', { count: 'exact' }).limit(8).then(({ count: result, data, error }) => {
+    setLoading(true)
+    setLoadError('')
+    const selection = section === 'usuarios' ? '*,roles(nombre)' : '*'
+    void supabase.from(meta.table).select(selection, { count: 'exact' }).limit(100).then(({ count: result, data, error }) => {
       if (!live) return
       if (error) setLoadError(error.message)
       else { setCount(result); setRows((data ?? []) as Record<string, unknown>[]) }
       setLoading(false)
     })
     return () => { live = false }
-  }, [meta.table])
+  }, [meta.table, refreshKey, section])
+  useEffect(() => {
+    if (!supabase || section !== 'usuarios') return
+    void supabase.from('roles').select('id,nombre').order('id').then(({ data }) => {
+      setRoles((data ?? []) as { id: number; nombre: RoleName }[])
+    })
+  }, [section])
   const Icon = navGroups.flatMap((group) => group.items).find((item) => item.id === section)?.icon ?? Settings2
-  const columns = rows[0] ? Object.keys(rows[0]).filter((key) => key !== 'id').slice(0, 4) : []
+  const filteredRows = rows.filter((row) => JSON.stringify(row).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  const columns = rows[0] ? Object.keys(rows[0]).filter((key) => key !== 'id' && key !== 'roles').slice(0, 5) : []
+  const canPublishToday = new Date().getDay() === 1
+
+  const exportCsv = () => {
+    if (!filteredRows.length) return
+    const headers = columns
+    const csvCell = (value: unknown) => `"${String(value ?? '').replaceAll('"', '""')}"`
+    const content = [headers.map(csvCell).join(','), ...filteredRows.map((row) => headers.map((key) => csvCell(row[key])).join(','))].join('\r\n')
+    const blob = new Blob([`\ufeff${content}`], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `rassa-${section}-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const updateUser = async (id: string, changes: Record<string, unknown>) => {
+    if (!supabase || id === profileId) return
+    setMessage('')
+    const target = rows.find((row) => row.id === id)
+    const targetRole = roles.find((role) => role.id === target?.rol_id)?.nombre
+    const removingAdmin = targetRole === 'administrador' && target?.activo === true
+      && (changes.activo === false || (typeof changes.rol_id === 'number' && roles.find((role) => role.id === changes.rol_id)?.nombre !== 'administrador'))
+    if (removingAdmin) {
+      const { count: activeAdmins, error: countError } = await supabase.from('perfiles')
+        .select('id,roles!inner(nombre)', { count: 'exact', head: true })
+        .eq('activo', true).eq('roles.nombre', 'administrador')
+      if (countError) { setLoadError(countError.message); return }
+      if ((activeAdmins ?? 0) <= 1) { setLoadError('No puedes desactivar ni cambiar el rol del último administrador activo.'); return }
+    }
+    const { error } = await supabase.from('perfiles').update(changes).eq('id', id)
+    if (error) setLoadError(error.message)
+    else { setMessage('Usuario actualizado.'); setRefreshKey((value) => value + 1) }
+  }
+
+  const updateAdminRow = async (id: string, table: string, changes: Record<string, unknown>) => {
+    if (!supabase) return
+    setLoadError('')
+    const { error } = await supabase.from(table).update(changes).eq('id', id)
+    if (error) setLoadError(error.message)
+    else { setMessage('Cambio guardado.'); setRefreshKey((value) => value + 1) }
+  }
+
+  const renderRowAction = (row: Record<string, unknown>) => {
+    if (section === 'usuarios') return <div className="row-actions"><select aria-label="Cambiar rol" value={String(row.rol_id)} disabled={row.id === profileId} onChange={(event) => void updateUser(String(row.id), { rol_id: Number(event.target.value) })}>{roles.map((role) => <option key={role.id} value={role.id}>{roleLabels[role.nombre]}</option>)}</select><button className={`status-toggle ${row.activo ? 'is-active' : ''}`} disabled={row.id === profileId} onClick={() => void updateUser(String(row.id), { activo: !row.activo })}>{row.activo ? 'Activo' : 'Desactivado'}</button></div>
+    if (section === 'publicaciones') return row.estado === 'borrador'
+      ? <button className="status-toggle is-active" disabled={!canPublishToday} title={canPublishToday ? 'Publicar ciclo' : 'El backend anterior permite publicar los lunes'} onClick={() => void updateAdminRow(String(row.id), meta.table, { estado: 'publicada' })}>Publicar</button>
+      : row.estado === 'publicada'
+        ? <button className="status-toggle" onClick={() => void updateAdminRow(String(row.id), meta.table, { estado: 'cerrada' })}>Cerrar ciclo</button>
+        : <span className="muted">Ciclo cerrado</span>
+    if (section === 'recolecciones') {
+      const next: Record<string, string> = { pendiente: 'en_ruta', en_ruta: 'recolectada' }
+      const nextState = next[String(row.estado)]
+      return nextState ? <button className="status-toggle" onClick={() => void updateAdminRow(String(row.id), meta.table, { estado: nextState })}>Marcar {nextState.replace('_', ' ')}</button> : <span className="muted">{displayValue(row.estado)}</span>
+    }
+    if (section === 'liquidaciones' && row.estado === 'pendiente') return <button className="status-toggle is-active" onClick={() => void updateAdminRow(String(row.id), meta.table, { estado: 'pagada' })}>Marcar pagada</button>
+    return null
+  }
+
   return <>
-    <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><Icon size={14} /></span>{meta.eyebrow}</div><h1>{meta.title}</h1><p>{meta.description}</p></div><button className="primary-button module-action" disabled title="Los formularios específicos se habilitarán en las siguientes entregas"><Plus size={16} /> Nuevo registro</button></div>
+    <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><Icon size={14} /></span>{meta.eyebrow}</div><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="module-toolbar"><button className="secondary-button" onClick={() => setRefreshKey((value) => value + 1)}><Activity size={15} /> Actualizar</button><button className="primary-button module-action" onClick={exportCsv} disabled={!filteredRows.length}><Download size={15} /> Exportar CSV</button></div></div>
     {loadError && <div className="inline-notice"><CircleHelp size={16} />{loadError}</div>}
+    {message && <div className="form-success">{message}</div>}
     <div className="module-summary-grid"><div className="panel module-count"><div className="stat-top"><span>Registros actuales</span><span className="stat-icon mint"><Icon size={18} /></span></div><strong>{loading ? '…' : count ?? '—'}</strong><small>Actualizado desde Supabase</small></div><div className="panel module-description"><span className="eyebrow">FUNCIONES DEL MÓDULO</span><ul>{meta.bullets.map((bullet) => <li key={bullet}><span><Check size={12} /></span>{bullet}</li>)}</ul></div></div>
-    <div className="panel data-preview"><div className="panel-heading"><div><h3>Registros recientes</h3><p>Lectura conectada a <code>{meta.table}</code>.</p></div><button className="icon-button" title="Exportación disponible en una siguiente entrega" disabled><Download size={16} /></button></div>{rows.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr>{columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.id ?? index)}>{columns.map((column) => <td key={column}>{displayValue(row[column])}</td>)}</tr>)}</tbody></table></div> : <div className="empty-table"><div className="empty-illustration"><Package size={26} /></div><strong>{loading ? 'Cargando datos…' : 'No hay registros para mostrar'}</strong><span>{loading ? 'Consultando Supabase.' : 'Cuando se agreguen datos a este módulo, aparecerán aquí.'}</span></div>}</div>
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Registros</h3><p>Hasta 100 registros de <code>{meta.table}</code>.</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar en los registros" /></label></div>{filteredRows.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr>{columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}{['usuarios','publicaciones','recolecciones','liquidaciones'].includes(section) && <th>Acciones</th>}</tr></thead><tbody>{filteredRows.map((row, index) => <tr key={String(row.id ?? index)}>{columns.map((column) => <td key={column}>{column === 'rol_id' && section === 'usuarios' ? displayValue((row.roles as { nombre?: string } | null)?.nombre ?? row[column]) : displayValue(row[column])}</td>)}{['usuarios','publicaciones','recolecciones','liquidaciones'].includes(section) && <td>{renderRowAction(row)}</td>}</tr>)}</tbody></table></div> : <div className="empty-table"><div className="empty-illustration"><Package size={26} /></div><strong>{loading ? 'Cargando datos…' : search ? 'Sin coincidencias' : 'No hay registros para mostrar'}</strong><span>{loading ? 'Consultando Supabase.' : search ? 'Cambia el texto de búsqueda.' : 'Cuando se agreguen datos a este módulo, aparecerán aquí.'}</span></div>}</div>
   </>
 }
 

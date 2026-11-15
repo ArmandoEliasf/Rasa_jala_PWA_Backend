@@ -387,3 +387,15 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .
 .recovery-card label { color: var(--muted); display: flex; flex-direction: column; gap: 6px; font-size: 10px; }
 .recovery-card input { height: 40px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 10px; background: var(--panel-soft); color: var(--text); }
 .recovery-card .form-error { margin: 0; }
+
+.module-toolbar, .row-actions { display: flex; align-items: center; gap: 8px; }
+.secondary-button { min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--line-strong); border-radius: 8px; padding: 0 11px; background: var(--panel); color: var(--text); font-size: 10px; font-weight: 700; cursor: pointer; }
+.secondary-button:hover { border-color: var(--green-bright); color: var(--green-dark); }
+.module-toolbar .module-action { min-height: 36px; }
+.table-search { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 10px; }
+.table-search input { width: min(220px, 42vw); height: 34px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 0 9px; background: var(--panel); color: var(--text); font-size: 10px; }
+.row-actions select { max-width: 120px; height: 29px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--panel); color: var(--text); font-size: 9px; }
+.status-toggle { min-width: 76px; border: 1px solid var(--line-strong); border-radius: 999px; padding: 5px 8px; background: var(--panel-soft); color: var(--muted); font-size: 9px; font-weight: 700; cursor: pointer; }
+.status-toggle.is-active { border-color: #c6e1cd; background: var(--green-pale); color: var(--green-dark); }
+.status-toggle:disabled, .row-actions select:disabled { opacity: .55; cursor: not-allowed; }
+@media (max-width: 650px) { .module-toolbar { width: 100%; } .module-toolbar > button { flex: 1; } .panel-heading { align-items: flex-start; flex-direction: column; } .table-search { width: 100%; } .table-search input { flex: 1; width: auto; } }
