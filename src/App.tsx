@@ -52,6 +52,30 @@ const moduleCopy: Record<Exclude<AdminSection, 'inicio' | 'perfil'>, { title: st
   auditoria: { title: 'Auditoría y reportes', eyebrow: 'Trazabilidad', description: 'Consulta la actividad relevante y los indicadores de operación.', table: 'registros_auditoria', bullets: ['Filtrar actividad por usuario y fecha', 'Consultar eventos administrativos', 'Revisar reportes operativos'] },
 }
 
+type CatalogField = { key: string; label: string; kind: 'text' | 'textarea' | 'checkbox' | 'select'; required?: boolean; source?: 'categorias' | 'municipios' }
+type CatalogResource = { key: string; title: string; table: string; columns: string[]; fields: CatalogField[]; statusKey?: 'activo' | 'activa' }
+const catalogResources: CatalogResource[] = [
+  { key: 'productos', title: 'Productos', table: 'productos', columns: ['nombre','categoria_id','descripcion','es_perecedero','activo'], statusKey: 'activo', fields: [
+    { key: 'nombre', label: 'Nombre del producto', kind: 'text', required: true },
+    { key: 'categoria_id', label: 'Categoría', kind: 'select', source: 'categorias', required: true },
+    { key: 'descripcion', label: 'Descripción', kind: 'textarea' },
+    { key: 'es_perecedero', label: 'Producto perecedero', kind: 'checkbox' },
+  ] },
+  { key: 'categorias', title: 'Categorías', table: 'categorias', columns: ['nombre','descripcion','activa'], statusKey: 'activa', fields: [
+    { key: 'nombre', label: 'Nombre', kind: 'text', required: true }, { key: 'descripcion', label: 'Descripción', kind: 'textarea' },
+  ] },
+  { key: 'unidades', title: 'Unidades', table: 'unidades', columns: ['nombre','abreviatura','permite_fraccion','activa'], statusKey: 'activa', fields: [
+    { key: 'nombre', label: 'Nombre de unidad', kind: 'text', required: true }, { key: 'abreviatura', label: 'Abreviatura', kind: 'text', required: true },
+    { key: 'permite_fraccion', label: 'Permite cantidades fraccionarias', kind: 'checkbox' },
+  ] },
+  { key: 'municipios', title: 'Municipios', table: 'municipios', columns: ['nombre'], fields: [
+    { key: 'nombre', label: 'Nombre', kind: 'text', required: true },
+  ] },
+  { key: 'localidades', title: 'Localidades', table: 'localidades', columns: ['nombre','municipio_id'], fields: [
+    { key: 'municipio_id', label: 'Municipio', kind: 'select', source: 'municipios', required: true }, { key: 'nombre', label: 'Nombre', kind: 'text', required: true },
+  ] },
+]
+
 const roleLabels: Record<RoleName, string> = {
   administrador: 'Administrador', vendedor: 'Vendedor', agricultor: 'Agricultor', comprador: 'Comprador',
 }
@@ -304,7 +328,7 @@ function AdminModule({ section, profileId }: { section: Exclude<AdminSection, 'i
     let live = true
     setLoading(true)
     setLoadError('')
-    const selection = section === 'usuarios' ? '*,roles(nombre)' : '*'
+    const selection = '*'
     void supabase.from(meta.table).select(selection, { count: 'exact' }).limit(100).then(({ count: result, data, error }) => {
       if (!live) return
       if (error) setLoadError(error.message)
@@ -321,7 +345,7 @@ function AdminModule({ section, profileId }: { section: Exclude<AdminSection, 'i
   }, [section])
   const Icon = navGroups.flatMap((group) => group.items).find((item) => item.id === section)?.icon ?? Settings2
   const filteredRows = rows.filter((row) => JSON.stringify(row).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
-  const columns = rows[0] ? Object.keys(rows[0]).filter((key) => key !== 'id' && key !== 'roles').slice(0, 5) : []
+  const columns = rows[0] ? Object.keys(rows[0]).filter((key) => key !== 'id').slice(0, 5) : []
   const canPublishToday = new Date().getDay() === 1
 
   const exportCsv = () => {
@@ -381,12 +405,114 @@ function AdminModule({ section, profileId }: { section: Exclude<AdminSection, 'i
     return null
   }
 
+  if (section === 'catalogo') return <CatalogAdmin profileId={profileId} />
   return <>
     <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><Icon size={14} /></span>{meta.eyebrow}</div><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="module-toolbar"><button className="secondary-button" onClick={() => setRefreshKey((value) => value + 1)}><Activity size={15} /> Actualizar</button><button className="primary-button module-action" onClick={exportCsv} disabled={!filteredRows.length}><Download size={15} /> Exportar CSV</button></div></div>
     {loadError && <div className="inline-notice"><CircleHelp size={16} />{loadError}</div>}
     {message && <div className="form-success">{message}</div>}
     <div className="module-summary-grid"><div className="panel module-count"><div className="stat-top"><span>Registros actuales</span><span className="stat-icon mint"><Icon size={18} /></span></div><strong>{loading ? '…' : count ?? '—'}</strong><small>Actualizado desde Supabase</small></div><div className="panel module-description"><span className="eyebrow">FUNCIONES DEL MÓDULO</span><ul>{meta.bullets.map((bullet) => <li key={bullet}><span><Check size={12} /></span>{bullet}</li>)}</ul></div></div>
-    <div className="panel data-preview"><div className="panel-heading"><div><h3>Registros</h3><p>Hasta 100 registros de <code>{meta.table}</code>.</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar en los registros" /></label></div>{filteredRows.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr>{columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}{['usuarios','publicaciones','recolecciones','liquidaciones'].includes(section) && <th>Acciones</th>}</tr></thead><tbody>{filteredRows.map((row, index) => <tr key={String(row.id ?? index)}>{columns.map((column) => <td key={column}>{column === 'rol_id' && section === 'usuarios' ? displayValue((row.roles as { nombre?: string } | null)?.nombre ?? row[column]) : displayValue(row[column])}</td>)}{['usuarios','publicaciones','recolecciones','liquidaciones'].includes(section) && <td>{renderRowAction(row)}</td>}</tr>)}</tbody></table></div> : <div className="empty-table"><div className="empty-illustration"><Package size={26} /></div><strong>{loading ? 'Cargando datos…' : search ? 'Sin coincidencias' : 'No hay registros para mostrar'}</strong><span>{loading ? 'Consultando Supabase.' : search ? 'Cambia el texto de búsqueda.' : 'Cuando se agreguen datos a este módulo, aparecerán aquí.'}</span></div>}</div>
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Registros</h3><p>Hasta 100 registros de <code>{meta.table}</code>.</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar en los registros" /></label></div>{filteredRows.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr>{columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}{['usuarios','publicaciones','recolecciones','liquidaciones'].includes(section) && <th>Acciones</th>}</tr></thead><tbody>{filteredRows.map((row, index) => <tr key={String(row.id ?? index)}>{columns.map((column) => <td key={column}>{column === 'rol_id' && section === 'usuarios' ? roleLabels[roles.find((role) => role.id === row.rol_id)?.nombre ?? 'comprador'] : displayValue(row[column])}</td>)}{['usuarios','publicaciones','recolecciones','liquidaciones'].includes(section) && <td>{renderRowAction(row)}</td>}</tr>)}</tbody></table></div> : <div className="empty-table"><div className="empty-illustration"><Package size={26} /></div><strong>{loading ? 'Cargando datos…' : search ? 'Sin coincidencias' : 'No hay registros para mostrar'}</strong><span>{loading ? 'Consultando Supabase.' : search ? 'Cambia el texto de búsqueda.' : 'Cuando se agreguen datos a este módulo, aparecerán aquí.'}</span></div>}</div>
+  </>
+}
+
+function CatalogAdmin({ profileId }: { profileId: string }) {
+  const [resourceKey, setResourceKey] = useState('productos')
+  const resource = catalogResources.find((item) => item.key === resourceKey) ?? catalogResources[0]
+  const [rows, setRows] = useState<Record<string, unknown>[]>([])
+  const [options, setOptions] = useState<Record<string, { id: string; nombre: string }[]>>({})
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [loadError, setLoadError] = useState('')
+  const [message, setMessage] = useState('')
+  const [editing, setEditing] = useState<Record<string, unknown> | null>(null)
+  const [draft, setDraft] = useState<Record<string, unknown>>({})
+
+  useEffect(() => {
+    if (!supabase) return
+    let live = true
+    setLoading(true)
+    setLoadError('')
+    void supabase.from(resource.table).select('*', { count: 'exact' }).limit(500).then(({ data, error }) => {
+      if (!live) return
+      if (error) setLoadError(error.message)
+      else setRows((data ?? []) as Record<string, unknown>[])
+      setLoading(false)
+    })
+    return () => { live = false }
+  }, [resource.table, refreshKey])
+
+  useEffect(() => {
+    if (!supabase) return
+    void Promise.all([
+      supabase.from('categorias').select('id,nombre').order('nombre'),
+      supabase.from('municipios').select('id,nombre').order('nombre'),
+    ]).then(([categories, municipalities]) => {
+      setOptions({
+        categorias: (categories.data ?? []) as { id: string; nombre: string }[],
+        municipios: (municipalities.data ?? []) as { id: string; nombre: string }[],
+      })
+    })
+  }, [refreshKey])
+
+  const filtered = rows.filter((row) => JSON.stringify(row).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  const closeForm = () => { setEditing(null); setDraft({}); setLoadError('') }
+  const openCreate = () => { setEditing({}); setDraft({ es_perecedero: false, permite_fraccion: false }); setLoadError('') }
+  const openEdit = (row: Record<string, unknown>) => {
+    setEditing(row)
+    setDraft(Object.fromEntries(resource.fields.map((field) => [field.key, row[field.key] ?? (field.kind === 'checkbox' ? false : '')])))
+    setLoadError('')
+  }
+
+  const save = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase) return
+    setSaving(true)
+    setLoadError('')
+    setMessage('')
+    const payload: Record<string, unknown> = {}
+    for (const field of resource.fields) {
+      const value = draft[field.key]
+      payload[field.key] = field.kind === 'checkbox' ? Boolean(value) : typeof value === 'string' ? value.trim() || null : value
+    }
+    if (resource.key === 'productos' && !editing?.id) payload.creado_por = profileId
+    if (resource.statusKey && !editing?.id) payload[resource.statusKey] = true
+    const result = editing?.id
+      ? await supabase.from(resource.table).update(payload).eq('id', String(editing.id))
+      : await supabase.from(resource.table).insert(payload)
+    if (result.error) setLoadError(result.error.message)
+    else {
+      setMessage(editing?.id ? 'Registro actualizado.' : 'Registro creado.')
+      closeForm()
+      setRefreshKey((value) => value + 1)
+    }
+    setSaving(false)
+  }
+
+  const toggleStatus = async (row: Record<string, unknown>) => {
+    if (!supabase || !resource.statusKey) return
+    const key = resource.statusKey
+    const { error } = await supabase.from(resource.table).update({ [key]: !row[key] }).eq('id', String(row.id))
+    if (error) setLoadError(error.message)
+    else { setMessage(row[key] ? 'Registro desactivado.' : 'Registro restaurado.'); setRefreshKey((value) => value + 1) }
+  }
+
+  const labelFor = (column: string, value: unknown) => {
+    if (column === 'categoria_id') return options.categorias?.find((item) => item.id === value)?.nombre ?? displayValue(value)
+    if (column === 'municipio_id') return options.municipios?.find((item) => item.id === value)?.nombre ?? displayValue(value)
+    return displayValue(value)
+  }
+
+  return <>
+    <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><Apple size={14} /></span>PRODUCTOS Y UBICACIÓN</div><h1>Catálogo</h1><p>Administra productos, categorías, unidades y ubicaciones de la red.</p></div><div className="module-toolbar"><button className="secondary-button" onClick={() => setRefreshKey((value) => value + 1)}><Activity size={15} /> Actualizar</button><button className="primary-button" onClick={openCreate}><Plus size={15} /> Nuevo {resource.title.toLocaleLowerCase()}</button></div></div>
+    <div className="management-tabs" role="tablist" aria-label="Secciones del catálogo">{catalogResources.map((item) => <button key={item.key} role="tab" aria-selected={resourceKey === item.key} className={resourceKey === item.key ? 'active' : ''} onClick={() => { setResourceKey(item.key); setSearch(''); closeForm() }}>{item.title}</button>)}</div>
+    {loadError && !editing && <div className="inline-notice"><CircleHelp size={16} />{loadError}</div>}
+    {message && <div className="form-success">{message}</div>}
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>{resource.title}</h3><p>{loading ? 'Cargando…' : `${filtered.length} de ${rows.length} registros`}</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder={`Buscar ${resource.title.toLocaleLowerCase()}`} /></label></div>
+      {filtered.length ? <div className="table-scroll"><table className="data-table"><thead><tr>{resource.columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}<th>Acciones</th></tr></thead><tbody>{filtered.map((row) => <tr key={String(row.id)}>{resource.columns.map((column) => <td key={column}>{labelFor(column, row[column])}</td>)}<td><div className="row-actions"><button className="secondary-button compact-button" onClick={() => openEdit(row)}>Editar</button>{resource.statusKey && <button className={`status-toggle ${row[resource.statusKey] ? 'is-active' : ''}`} onClick={() => void toggleStatus(row)}>{row[resource.statusKey] ? 'Activo' : 'Restaurar'}</button>}</div></td></tr>)}</tbody></table></div> : <div className="empty-table"><div className="empty-illustration"><Package size={26} /></div><strong>{loading ? 'Cargando catálogo…' : search ? 'Sin coincidencias' : `No hay ${resource.title.toLocaleLowerCase()}`}</strong><span>{search ? 'Prueba otro texto.' : 'Agrega el primer registro para este catálogo.'}</span></div>}
+    </div>
+    {editing !== null && <div className="form-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeForm() }}><form className="panel form-modal" role="dialog" aria-modal="true" aria-labelledby="catalog-form-title" onSubmit={(event) => void save(event)}><div className="panel-heading"><div><h3 id="catalog-form-title">{editing.id ? 'Editar' : 'Nuevo'} {resource.title.toLocaleLowerCase()}</h3><p>Los cambios se guardan en Supabase.</p></div><button type="button" className="icon-button" aria-label="Cerrar" onClick={closeForm}><X size={17} /></button></div><div className="module-form">{resource.fields.map((field) => <label key={field.key} className={field.kind === 'textarea' ? 'form-wide' : ''}>{field.kind === 'checkbox' ? <span className="checkbox-field"><input type="checkbox" checked={Boolean(draft[field.key])} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.checked }))} />{field.label}</span> : <>{field.label}{field.kind === 'select' ? <select value={String(draft[field.key] ?? '')} required={field.required} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))}><option value="">Selecciona…</option>{(options[field.source ?? ''] ?? []).map((option) => <option key={option.id} value={option.id}>{option.nombre}</option>)}</select> : field.kind === 'textarea' ? <textarea value={String(draft[field.key] ?? '')} rows={3} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} /> : <input value={String(draft[field.key] ?? '')} required={field.required} onChange={(event) => setDraft((current) => ({ ...current, [field.key]: event.target.value }))} />}</>}</label>)}</div>{loadError && <div className="form-error">{loadError}</div>}<div className="form-actions"><button type="button" className="secondary-button" onClick={closeForm}>Cancelar</button><button type="submit" className="primary-button" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button></div></form></div>}
   </>
 }
 

@@ -398,4 +398,22 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .
 .status-toggle { min-width: 76px; border: 1px solid var(--line-strong); border-radius: 999px; padding: 5px 8px; background: var(--panel-soft); color: var(--muted); font-size: 9px; font-weight: 700; cursor: pointer; }
 .status-toggle.is-active { border-color: #c6e1cd; background: var(--green-pale); color: var(--green-dark); }
 .status-toggle:disabled, .row-actions select:disabled { opacity: .55; cursor: not-allowed; }
+.management-tabs { display: flex; gap: 6px; overflow-x: auto; margin: -4px 0 14px; padding: 3px 1px 7px; }
+.management-tabs button { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--muted); padding: 8px 12px; font-size: 10px; font-weight: 700; cursor: pointer; }
+.management-tabs button.active { border-color: var(--green); background: var(--green-soft); color: var(--green-dark); }
+.compact-button { min-height: 28px; padding: 0 8px; font-size: 9px; }
+.form-modal-backdrop { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: rgba(10, 24, 15, .48); }
+.form-modal { width: min(540px, 100%); max-height: min(88vh, 760px); overflow: auto; padding: 20px; box-shadow: var(--shadow); }
+.form-modal .panel-heading { display: flex; flex-direction: row; align-items: flex-start; justify-content: space-between; margin-bottom: 17px; }
+.form-modal .panel-heading h3 { margin: 0 0 4px; color: var(--text); font-size: 15px; }
+.form-modal .panel-heading p { margin: 0; color: var(--muted); font-size: 10px; }
+.module-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.module-form label { display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 10px; font-weight: 600; }
+.module-form input:not([type='checkbox']), .module-form select, .module-form textarea { width: 100%; min-height: 37px; border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px 9px; background: var(--panel-soft); color: var(--text); font: inherit; font-weight: 400; }
+.module-form textarea { resize: vertical; }
+.module-form .form-wide { grid-column: 1 / -1; }
+.checkbox-field { display: flex; align-items: center; gap: 8px; min-height: 37px; color: var(--text); font-weight: 500; }
+.checkbox-field input { accent-color: var(--green); }
+.form-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 17px; }
 @media (max-width: 650px) { .module-toolbar { width: 100%; } .module-toolbar > button { flex: 1; } .panel-heading { align-items: flex-start; flex-direction: column; } .table-search { width: 100%; } .table-search input { flex: 1; width: auto; } }
+@media (max-width: 520px) { .module-form { grid-template-columns: 1fr; } .module-form .form-wide { grid-column: auto; } .form-modal { padding: 15px; } }
