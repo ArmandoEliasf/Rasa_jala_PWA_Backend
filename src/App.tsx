@@ -406,12 +406,353 @@ function AdminModule({ section, profileId }: { section: Exclude<AdminSection, 'i
   }
 
   if (section === 'catalogo') return <CatalogAdmin profileId={profileId} />
+  if (section === 'publicaciones') return <WeeklyCyclesAdmin />
+  if (section === 'familias') return <FamiliesAdmin />
+  if (section === 'pedidos') return <OrdersAdmin />
   return <>
     <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><Icon size={14} /></span>{meta.eyebrow}</div><h1>{meta.title}</h1><p>{meta.description}</p></div><div className="module-toolbar"><button className="secondary-button" onClick={() => setRefreshKey((value) => value + 1)}><Activity size={15} /> Actualizar</button><button className="primary-button module-action" onClick={exportCsv} disabled={!filteredRows.length}><Download size={15} /> Exportar CSV</button></div></div>
     {loadError && <div className="inline-notice"><CircleHelp size={16} />{loadError}</div>}
     {message && <div className="form-success">{message}</div>}
     <div className="module-summary-grid"><div className="panel module-count"><div className="stat-top"><span>Registros actuales</span><span className="stat-icon mint"><Icon size={18} /></span></div><strong>{loading ? '…' : count ?? '—'}</strong><small>Actualizado desde Supabase</small></div><div className="panel module-description"><span className="eyebrow">FUNCIONES DEL MÓDULO</span><ul>{meta.bullets.map((bullet) => <li key={bullet}><span><Check size={12} /></span>{bullet}</li>)}</ul></div></div>
     <div className="panel data-preview"><div className="panel-heading"><div><h3>Registros</h3><p>Hasta 100 registros de <code>{meta.table}</code>.</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar en los registros" /></label></div>{filteredRows.length > 0 ? <div className="table-scroll"><table className="data-table"><thead><tr>{columns.map((column) => <th key={column}>{columnLabel(column)}</th>)}{['usuarios','publicaciones','recolecciones','liquidaciones'].includes(section) && <th>Acciones</th>}</tr></thead><tbody>{filteredRows.map((row, index) => <tr key={String(row.id ?? index)}>{columns.map((column) => <td key={column}>{column === 'rol_id' && section === 'usuarios' ? roleLabels[roles.find((role) => role.id === row.rol_id)?.nombre ?? 'comprador'] : displayValue(row[column])}</td>)}{['usuarios','publicaciones','recolecciones','liquidaciones'].includes(section) && <td>{renderRowAction(row)}</td>}</tr>)}</tbody></table></div> : <div className="empty-table"><div className="empty-illustration"><Package size={26} /></div><strong>{loading ? 'Cargando datos…' : search ? 'Sin coincidencias' : 'No hay registros para mostrar'}</strong><span>{loading ? 'Consultando Supabase.' : search ? 'Cambia el texto de búsqueda.' : 'Cuando se agreguen datos a este módulo, aparecerán aquí.'}</span></div>}</div>
+  </>
+}
+
+function OrdersAdmin() {
+  const [orders, setOrders] = useState<Record<string, unknown>[]>([])
+  const [totals, setTotals] = useState<Record<string, number>>({})
+  const [people, setPeople] = useState<Record<string, string>>({})
+  const [sellers, setSellers] = useState<{ id: string; label: string }[]>([])
+  const [states, setStates] = useState<Record<number, string>>({})
+  const [details, setDetails] = useState<Record<string, unknown>[]>([])
+  const [history, setHistory] = useState<Record<string, unknown>[]>([])
+  const [selected, setSelected] = useState('')
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (!supabase) return
+    const client = supabase
+    let live = true
+    setLoading(true); setError('')
+    void Promise.all([
+      client.from('pedidos').select('*').order('creado_en', { ascending: false }).limit(300),
+      client.from('totales_pedido').select('pedido_id,total'),
+      client.from('perfiles').select('id,nombres,apellido_paterno,activo,rol_id'),
+      client.from('roles').select('id,nombre'),
+      client.from('estados_pedido').select('id,nombre'),
+    ]).then(([ordersResult, totalResult, profilesResult, rolesResult, statesResult]) => {
+      if (!live) return
+      if (ordersResult.error) setError(ordersResult.error.message)
+      else setOrders((ordersResult.data ?? []) as Record<string, unknown>[])
+      if (totalResult.error) setError(totalResult.error.message)
+      setTotals(Object.fromEntries((totalResult.data ?? []).map((row) => [row.pedido_id, Number(row.total)])))
+      const roleNames = Object.fromEntries((rolesResult.data ?? []).map((role) => [role.id, role.nombre]))
+      const profiles = profilesResult.data ?? []
+      setPeople(Object.fromEntries(profiles.map((profile) => [profile.id, `${profile.nombres} ${profile.apellido_paterno}`.trim()])))
+      setSellers(profiles.filter((profile) => profile.activo && roleNames[profile.rol_id] === 'vendedor').map((profile) => ({ id: profile.id, label: `${profile.nombres} ${profile.apellido_paterno}`.trim() })))
+      setStates(Object.fromEntries((statesResult.data ?? []).map((state) => [state.id, state.nombre])))
+      setLoading(false)
+    })
+    return () => { live = false }
+  }, [refreshKey])
+
+  useEffect(() => {
+    if (!supabase || !selected) { setDetails([]); setHistory([]); return }
+    const client = supabase
+    let live = true
+    void Promise.all([
+      client.from('detalles_pedido').select('*').eq('pedido_id', selected).order('creado_en'),
+      client.from('historial_pedido').select('*').eq('pedido_id', selected).order('creado_en', { ascending: false }),
+    ]).then(([detailResult, historyResult]) => {
+      if (!live) return
+      if (detailResult.error) setError(detailResult.error.message)
+      else setDetails((detailResult.data ?? []) as Record<string, unknown>[])
+      if (historyResult.error) setError(historyResult.error.message)
+      else setHistory((historyResult.data ?? []) as Record<string, unknown>[])
+    })
+    return () => { live = false }
+  }, [selected, refreshKey])
+
+  const statusFor = (row: Record<string, unknown>) => states[Number(row.estado_id)] ?? 'desconocido'
+  const nextState: Record<string, string> = { pendiente: 'confirmado', confirmado: 'en_preparacion', en_preparacion: 'listo_para_retirar', listo_para_retirar: 'entregado' }
+  const filtered = orders.filter((order) => `${order.id} ${people[String(order.comprador_id)] ?? ''} ${people[String(order.vendedor_id)] ?? ''} ${statusFor(order)}`.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+
+  const runOrderAction = async (rpc: 'admin_cambiar_estado_pedido' | 'admin_asignar_vendedor', args: Record<string, unknown>, success: string) => {
+    if (!supabase || !selected) return
+    setSaving(true); setError(''); setMessage('')
+    const { error: rpcError } = await supabase.rpc(rpc, args as never)
+    if (rpcError) setError(`${rpcError.message}. Confirma que ejecutaste sql/admin_workflows_supabase.sql en Supabase.`)
+    else { setMessage(success); setRefreshKey((value) => value + 1) }
+    setSaving(false)
+  }
+
+  const order = orders.find((item) => item.id === selected)
+  const stateName = order ? statusFor(order) : ''
+  return <>
+    <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><ShoppingBasket size={14} /></span>OPERACIÓN COMERCIAL</div><h1>Pedidos</h1><p>Revisa compras, asigna vendedores y da seguimiento al historial.</p></div><button className="secondary-button" onClick={() => setRefreshKey((value) => value + 1)}><Activity size={15} /> Actualizar</button></div>
+    {error && <div className="inline-notice"><CircleHelp size={16} />{error}</div>}{message && <div className="form-success">{message}</div>}
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Pedidos recibidos</h3><p>{loading ? 'Cargando…' : `${filtered.length} de ${orders.length} pedidos`}</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Comprador, vendedor o estado" /></label></div>
+      {filtered.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Pedido</th><th>Comprador</th><th>Vendedor asignado</th><th>Estado</th><th>Total</th><th>Fecha</th><th>Detalle</th></tr></thead><tbody>{filtered.map((item) => <tr key={String(item.id)}><td>{String(item.id).slice(0, 8).toUpperCase()}</td><td>{people[String(item.comprador_id)] ?? '—'}</td><td>{people[String(item.vendedor_id)] ?? 'Sin asignar'}</td><td>{stateForLabel(statusFor(item))}</td><td>{money(totals[String(item.id)] ?? 0)}</td><td>{new Date(String(item.creado_en)).toLocaleDateString('es-MX')}</td><td><button className="secondary-button compact-button" onClick={() => { setSelected(String(item.id)); setError(''); setMessage('') }}>Administrar</button></td></tr>)}</tbody></table></div> : <div className="empty-table"><div className="empty-illustration"><Package size={26} /></div><strong>{loading ? 'Cargando pedidos…' : 'No hay pedidos para mostrar'}</strong><span>{search ? 'Prueba otro texto de búsqueda.' : 'Los pedidos nuevos aparecerán aquí.'}</span></div>}
+    </div>
+    {order && <section className="panel data-preview order-management"><div className="panel-heading"><div><h3>Pedido {String(order.id).slice(0, 8).toUpperCase()}</h3><p>{people[String(order.comprador_id)] ?? 'Comprador'} · {stateForLabel(stateName)} · {money(totals[selected] ?? 0)}</p></div><button className="secondary-button compact-button" onClick={() => setSelected('')}>Cerrar</button></div>
+      <div className="order-actions"><label>Vendedor<select value={String(order.vendedor_id ?? '')} disabled={saving} onChange={(event) => void runOrderAction('admin_asignar_vendedor', { p_pedido_id: selected, p_vendedor_id: event.target.value || null }, 'Asignación actualizada.') }><option value="">Sin asignar</option>{sellers.map((seller) => <option key={seller.id} value={seller.id}>{seller.label}</option>)}</select></label><div className="row-actions">{nextState[stateName] && <button className="primary-button" disabled={saving} onClick={() => void runOrderAction('admin_cambiar_estado_pedido', { p_pedido_id: selected, p_nuevo_estado: nextState[stateName] }, 'Estado del pedido actualizado.')}>Avanzar a {stateForLabel(nextState[stateName])}</button>}{!['entregado','cancelado'].includes(stateName) && <button className="status-toggle" disabled={saving} onClick={() => { if (window.confirm('¿Cancelar el pedido y devolver el stock?')) void runOrderAction('admin_cambiar_estado_pedido', { p_pedido_id: selected, p_nuevo_estado: 'cancelado' }, 'Pedido cancelado y stock restaurado.') }}>Cancelar pedido</button>}</div></div>
+      <h4>Productos</h4><div className="table-scroll"><table className="data-table"><thead><tr><th>Producto</th><th>Cantidad</th><th>Unidad</th><th>Precio</th><th>Importe</th></tr></thead><tbody>{details.map((line) => <tr key={String(line.id)}><td>{displayValue(line.nombre_producto_snapshot)}</td><td>{displayValue(line.cantidad)}</td><td>{displayValue(line.unidad_snapshot)}</td><td>{money(Number(line.precio_unitario))}</td><td>{money(Number(line.precio_unitario) * Number(line.cantidad))}</td></tr>)}</tbody></table></div>
+      <h4>Historial de estados</h4>{history.length ? <ul className="order-history">{history.map((entry) => <li key={String(entry.id)}><strong>{stateForLabel(states[Number(entry.estado_nuevo_id)] ?? 'desconocido')}</strong><span>{displayValue(entry.comentario)}</span><small>{new Date(String(entry.creado_en)).toLocaleString('es-MX')} · {people[String(entry.cambiado_por)] ?? 'Sistema'}</small></li>)}</ul> : <p className="muted">Este pedido todavía no tiene historial.</p>}
+    </section>}
+  </>
+}
+
+function stateForLabel(state: string) { return state.replaceAll('_', ' ').replace(/^\w/, (letter) => letter.toLocaleUpperCase()) }
+function money(value: number) { return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(value) }
+
+function FamiliesAdmin() {
+  const [families, setFamilies] = useState<Record<string, unknown>[]>([])
+  const [buyers, setBuyers] = useState<{ id: string; label: string }[]>([])
+  const [members, setMembers] = useState<Record<string, unknown>[]>([])
+  const [limits, setLimits] = useState<Record<string, string>>({})
+  const [selectedId, setSelectedId] = useState('')
+  const [newMember, setNewMember] = useState('')
+  const [name, setName] = useState('')
+  const [headId, setHeadId] = useState('')
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+
+  useEffect(() => {
+    if (!supabase) return
+    const client = supabase
+    let live = true
+    setLoading(true)
+    void Promise.all([
+      client.from('familias').select('*').order('creado_en', { ascending: false }).limit(300),
+      client.from('roles').select('id').eq('nombre', 'comprador').maybeSingle(),
+    ]).then(async ([familyResult, buyerRole]) => {
+      if (!live) return
+      if (familyResult.error) setError(familyResult.error.message)
+      else setFamilies((familyResult.data ?? []) as Record<string, unknown>[])
+      if (buyerRole.data?.id) {
+        const { data, error: buyerError } = await client.from('perfiles').select('id,nombres,apellido_paterno,activo').eq('rol_id', buyerRole.data.id).eq('activo', true).order('nombres')
+        if (!live) return
+        if (buyerError) setError(buyerError.message)
+        setBuyers((data ?? []).map((buyer) => ({ id: buyer.id, label: `${buyer.nombres} ${buyer.apellido_paterno}` })))
+      }
+      setLoading(false)
+    })
+    return () => { live = false }
+  }, [refreshKey])
+
+  useEffect(() => {
+    if (!supabase || !selectedId) { setMembers([]); setLimits({}); return }
+    const client = supabase
+    let live = true
+    void client.from('integrantes_familia').select('usuario_id,unido_en').eq('familia_id', selectedId).order('unido_en').then(async ({ data, error: memberError }) => {
+      if (!live) return
+      if (memberError) { setError(memberError.message); return }
+      const ids = (data ?? []).map((row) => row.usuario_id)
+      if (!ids.length) { setMembers([]); setLimits({}); return }
+      const [{ data: profiles, error: profileError }, { data: credits, error: creditError }] = await Promise.all([
+        client.from('perfiles').select('id,nombres,apellido_paterno,telefono').in('id', ids),
+        client.from('limites_credito').select('comprador_id,limite').in('comprador_id', ids),
+      ])
+      if (!live) return
+      if (profileError) setError(profileError.message)
+      if (creditError) setError(creditError.message)
+      setMembers((profiles ?? []) as Record<string, unknown>[])
+      setLimits(Object.fromEntries((credits ?? []).map((row) => [row.comprador_id, String(row.limite)])))
+    })
+    return () => { live = false }
+  }, [selectedId, refreshKey])
+
+  const createFamily = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase) return
+    setSaving(true); setError(''); setMessage('')
+    const { data, error: createError } = await supabase.from('familias').insert({ nombre: name.trim(), jefe_id: headId || null }).select('id').single()
+    if (createError) { setError(createError.message); setSaving(false); return }
+    if (headId) {
+      const { error: memberError } = await supabase.from('integrantes_familia').insert({ familia_id: data.id, usuario_id: headId })
+      if (memberError) {
+        await supabase.from('familias').delete().eq('id', data.id)
+        setError(`No se pudo agregar al jefe de familia; se canceló el alta. ${memberError.message}`)
+        setSaving(false); return
+      }
+    }
+    setName(''); setHeadId(''); setSelectedId(data.id); setMessage('Familia creada. Agrega integrantes y configura sus límites de crédito.'); setRefreshKey((value) => value + 1); setSaving(false)
+  }
+
+  const addMember = async () => {
+    if (!supabase || !selectedId || !newMember) return
+    setSaving(true); setError('')
+    const { error: addError } = await supabase.from('integrantes_familia').insert({ familia_id: selectedId, usuario_id: newMember })
+    if (addError) setError(addError.message)
+    else { setNewMember(''); setMessage('Integrante agregado.'); setRefreshKey((value) => value + 1) }
+    setSaving(false)
+  }
+
+  const removeMember = async (memberId: string) => {
+    if (!supabase || !selectedId) return
+    setError('')
+    const { error: removeError } = await supabase.from('integrantes_familia').delete().eq('familia_id', selectedId).eq('usuario_id', memberId)
+    if (removeError) setError(removeError.message)
+    else { setMessage('Integrante retirado de la familia.'); setRefreshKey((value) => value + 1) }
+  }
+
+  const saveCreditLimit = async (buyerId: string) => {
+    if (!supabase) return
+    const raw = limits[buyerId]
+    const amount = Number(raw)
+    if (!Number.isFinite(amount) || amount < 0) { setError('El límite debe ser un monto igual o mayor a cero.'); return }
+    setError('')
+    const { error: limitError } = await supabase.from('limites_credito').upsert({ comprador_id: buyerId, limite: amount }, { onConflict: 'comprador_id' })
+    if (limitError) setError(limitError.message)
+    else setMessage('Límite de crédito guardado.')
+  }
+
+  const setFamilyActive = async (row: Record<string, unknown>) => {
+    if (!supabase) return
+    const { error: activeError } = await supabase.from('familias').update({ activa: !row.activa }).eq('id', String(row.id))
+    if (activeError) setError(activeError.message)
+    else { setMessage(row.activa ? 'Familia desactivada.' : 'Familia reactivada.'); setRefreshKey((value) => value + 1) }
+  }
+
+  const filtered = families.filter((family) => JSON.stringify(family).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  const selectedFamily = families.find((family) => family.id === selectedId)
+  const memberIds = new Set(members.map((member) => String(member.id)))
+  const availableBuyers = buyers.filter((buyer) => !memberIds.has(buyer.id))
+
+  return <>
+    <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><HeartHandshake size={14} /></span>COMUNIDAD</div><h1>Familias y crédito</h1><p>Organiza familias, asigna integrantes y administra límites de crédito individuales.</p></div><button className="secondary-button" onClick={() => setRefreshKey((value) => value + 1)}><Activity size={15} /> Actualizar</button></div>
+    {error && <div className="inline-notice"><CircleHelp size={16} />{error}</div>}{message && <div className="form-success">{message}</div>}
+    <form className="panel family-create-form" onSubmit={(event) => void createFamily(event)}><div><span className="eyebrow">NUEVA FAMILIA</span><h3>Crear grupo familiar</h3></div><label>Nombre de familia<input required value={name} onChange={(event) => setName(event.target.value)} placeholder="Ej. Familia García" /></label><label>Jefe/a de familia<select value={headId} onChange={(event) => setHeadId(event.target.value)}><option value="">Sin asignar</option>{buyers.map((buyer) => <option value={buyer.id} key={buyer.id}>{buyer.label}</option>)}</select></label><button className="primary-button" type="submit" disabled={saving || !name.trim()}><Plus size={15} /> Crear familia</button></form>
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Familias</h3><p>{loading ? 'Cargando…' : `${filtered.length} de ${families.length} familias`}</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar familia" /></label></div>{filtered.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Nombre</th><th>Jefe/a</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{filtered.map((family) => <tr key={String(family.id)}><td>{displayValue(family.nombre)}</td><td>{buyers.find((buyer) => buyer.id === family.jefe_id)?.label ?? displayValue(family.jefe_id)}</td><td>{family.activa ? 'Activa' : 'Desactivada'}</td><td><div className="row-actions"><button className="secondary-button compact-button" onClick={() => setSelectedId(String(family.id))}>Integrantes y crédito</button><button className={`status-toggle ${family.activa ? 'is-active' : ''}`} onClick={() => void setFamilyActive(family)}>{family.activa ? 'Desactivar' : 'Activar'}</button></div></td></tr>)}</tbody></table></div> : <div className="empty-table"><HeartHandshake size={25} /><strong>{loading ? 'Cargando familias…' : 'No hay familias'}</strong><span>Crea una familia y agrega compradores.</span></div>}</div>
+    {selectedFamily && <div className="panel data-preview family-members"><div className="panel-heading"><div><h3>{String(selectedFamily.nombre)}</h3><p>Integrantes y límites de crédito</p></div><button className="secondary-button" onClick={() => setSelectedId('')}>Cerrar detalle</button></div><div className="inline-add-member"><select value={newMember} onChange={(event) => setNewMember(event.target.value)}><option value="">Selecciona comprador…</option>{availableBuyers.map((buyer) => <option key={buyer.id} value={buyer.id}>{buyer.label}</option>)}</select><button className="primary-button" disabled={!newMember || saving} onClick={() => void addMember()}><Plus size={14} /> Agregar integrante</button></div>{members.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Integrante</th><th>Teléfono</th><th>Límite de crédito</th><th>Acciones</th></tr></thead><tbody>{members.map((member) => <tr key={String(member.id)}><td>{`${member.nombres} ${member.apellido_paterno}`}</td><td>{displayValue(member.telefono)}</td><td><div className="credit-edit"><span>$</span><input aria-label={`Límite de crédito de ${member.nombres}`} type="number" min="0" step="0.01" value={limits[String(member.id)] ?? ''} onChange={(event) => setLimits((current) => ({ ...current, [String(member.id)]: event.target.value }))} /><button className="secondary-button compact-button" onClick={() => void saveCreditLimit(String(member.id))}>Guardar</button></div></td><td><button className="status-toggle" onClick={() => void removeMember(String(member.id))}>Quitar</button></td></tr>)}</tbody></table></div> : <div className="empty-table"><strong>Esta familia no tiene integrantes</strong><span>Selecciona un comprador para agregarlo.</span></div>}</div>}
+  </>
+}
+
+function WeeklyCyclesAdmin() {
+  const [publications, setPublications] = useState<Record<string, unknown>[]>([])
+  const [farmers, setFarmers] = useState<{ id: string; label: string }[]>([])
+  const [products, setProducts] = useState<{ id: string; nombre: string }[]>([])
+  const [units, setUnits] = useState<{ id: string; nombre: string }[]>([])
+  const [items, setItems] = useState<Record<string, unknown>[]>([])
+  const [selectedId, setSelectedId] = useState('')
+  const [farmerId, setFarmerId] = useState('')
+  const [newItem, setNewItem] = useState({ producto_id: '', unidad_id: '', precio: '', stock: '' })
+  const [search, setSearch] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
+  const [error, setError] = useState('')
+  const [message, setMessage] = useState('')
+  const monday = new Date().getDay() === 1
+
+  useEffect(() => {
+    if (!supabase) return
+    const client = supabase
+    let live = true
+    setLoading(true)
+    void Promise.all([
+      client.from('publicaciones_semanales').select('*').order('fecha_publicacion', { ascending: false }).limit(200),
+      client.from('roles').select('id').eq('nombre', 'agricultor').maybeSingle(),
+      client.from('productos').select('id,nombre').eq('activo', true).order('nombre'),
+      client.from('unidades').select('id,nombre').eq('activa', true).order('nombre'),
+    ]).then(async ([pubResult, farmerRole, productResult, unitResult]) => {
+      if (!live) return
+      if (pubResult.error) setError(pubResult.error.message)
+      else setPublications((pubResult.data ?? []) as Record<string, unknown>[])
+      setProducts((productResult.data ?? []) as { id: string; nombre: string }[])
+      setUnits((unitResult.data ?? []) as { id: string; nombre: string }[])
+      if (farmerRole.data?.id) {
+        const { data, error: farmerError } = await client.from('perfiles').select('id,nombres,apellido_paterno').eq('rol_id', farmerRole.data.id).eq('activo', true).order('nombres')
+        if (!live) return
+        if (farmerError) setError(farmerError.message)
+        setFarmers((data ?? []).map((farmer) => ({ id: farmer.id, label: `${farmer.nombres} ${farmer.apellido_paterno}` })))
+      }
+      setLoading(false)
+    })
+    return () => { live = false }
+  }, [refreshKey])
+
+  useEffect(() => {
+    if (!supabase || !selectedId) { setItems([]); return }
+    let live = true
+    void supabase.from('productos_publicados').select('*').eq('publicacion_id', selectedId).order('creado_en').then(({ data, error: itemError }) => {
+      if (!live) return
+      if (itemError) setError(itemError.message)
+      else setItems((data ?? []) as Record<string, unknown>[])
+    })
+    return () => { live = false }
+  }, [selectedId, refreshKey])
+
+  const filtered = publications.filter((row) => JSON.stringify(row).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()))
+  const nextMonday = () => {
+    const date = new Date()
+    const offset = ((8 - date.getDay()) % 7) || 7
+    date.setDate(date.getDate() + offset)
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+  }
+
+  const createPublication = async () => {
+    if (!supabase || !farmerId) { setError('Selecciona el agricultor responsable.'); return }
+    if (!monday) { setError('El backend anterior permite crear publicaciones únicamente los lunes.'); return }
+    setSaving(true); setError(''); setMessage('')
+    const { data, error: createError } = await supabase.from('publicaciones_semanales')
+      .insert({ agricultor_id: farmerId, fecha_publicacion: nextMonday(), estado: 'borrador' }).select('id').single()
+    if (createError) setError(createError.message)
+    else {
+      setMessage('Ciclo creado como borrador. Agrega sus productos antes de publicarlo.')
+      setSelectedId(data.id)
+      setRefreshKey((value) => value + 1)
+    }
+    setSaving(false)
+  }
+
+  const changePublication = async (id: string, estado: 'publicada' | 'cerrada') => {
+    if (!supabase) return
+    if (estado === 'publicada' && !monday) { setError('Las publicaciones solo pueden publicarse los lunes.'); return }
+    setError(''); setMessage('')
+    const { error: updateError } = await supabase.from('publicaciones_semanales').update({ estado }).eq('id', id)
+    if (updateError) setError(updateError.message)
+    else { setMessage(estado === 'publicada' ? 'Publicación activa.' : 'Ciclo cerrado.'); setRefreshKey((value) => value + 1) }
+  }
+
+  const addWeeklyProduct = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase || !selectedId) return
+    const publication = publications.find((row) => row.id === selectedId)
+    if (publication?.estado !== 'borrador') { setError('Solo puedes modificar los productos de un ciclo en borrador.'); return }
+    setSaving(true); setError(''); setMessage('')
+    const { error: insertError } = await supabase.from('productos_publicados').insert({
+      publicacion_id: selectedId, producto_id: newItem.producto_id, unidad_id: newItem.unidad_id,
+      precio: Number(newItem.precio), stock_inicial: Number(newItem.stock), stock_disponible: Number(newItem.stock), activo: true,
+    })
+    if (insertError) setError(insertError.message)
+    else { setMessage('Producto agregado al ciclo.'); setNewItem({ producto_id: '', unidad_id: '', precio: '', stock: '' }); setRefreshKey((value) => value + 1) }
+    setSaving(false)
+  }
+
+  const selectedPublication = publications.find((row) => row.id === selectedId)
+  const productName = (id: unknown) => products.find((item) => item.id === id)?.nombre ?? displayValue(id)
+  const unitName = (id: unknown) => units.find((item) => item.id === id)?.nombre ?? displayValue(id)
+
+  return <>
+    <div className="module-header"><div><div className="module-eyebrow"><span className="module-mark"><CalendarDays size={14} /></span>OFERTA AGRÍCOLA</div><h1>Ciclos semanales</h1><p>Crea borradores, prepara productos y publica la oferta semanal de cada agricultor.</p></div><div className="module-toolbar"><select className="inline-select" aria-label="Agricultor responsable" value={farmerId} onChange={(event) => setFarmerId(event.target.value)}><option value="">Selecciona agricultor…</option>{farmers.map((farmer) => <option key={farmer.id} value={farmer.id}>{farmer.label}</option>)}</select><button className="primary-button" disabled={!monday || saving || farmers.length === 0 || !farmerId} title={!monday ? 'Solo se crean publicaciones los lunes' : ''} onClick={() => void createPublication()}><Plus size={15} /> Crear ciclo</button></div></div>
+    {error && <div className="inline-notice"><CircleHelp size={16} />{error}</div>}{message && <div className="form-success">{message}</div>}
+    <div className="panel data-preview"><div className="panel-heading"><div><h3>Ciclos registrados</h3><p>{loading ? 'Cargando…' : `${publications.length} ciclos`}</p></div><label className="table-search"><span>Buscar</span><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filtrar por agricultor, fecha o estado" /></label></div>
+      {filtered.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Fecha</th><th>Agricultor</th><th>Estado</th><th>Acciones</th></tr></thead><tbody>{filtered.map((row) => <tr key={String(row.id)}><td>{displayValue(row.fecha_publicacion)}</td><td>{farmers.find((farmer) => farmer.id === row.agricultor_id)?.label ?? displayValue(row.agricultor_id)}</td><td>{displayValue(row.estado)}</td><td><div className="row-actions"><button className="secondary-button compact-button" onClick={() => setSelectedId(String(row.id))}>Productos</button>{row.estado === 'borrador' && <button className="status-toggle is-active" disabled={!monday} onClick={() => void changePublication(String(row.id), 'publicada')}>Publicar</button>}{row.estado === 'publicada' && <button className="status-toggle" onClick={() => void changePublication(String(row.id), 'cerrada')}>Cerrar</button>}</div></td></tr>)}</tbody></table></div> : <div className="empty-table"><div className="empty-illustration"><CalendarDays size={26} /></div><strong>{loading ? 'Cargando ciclos…' : 'No hay ciclos para mostrar'}</strong><span>{!monday ? 'La creación y publicación se habilitan los lunes.' : 'Crea un ciclo para comenzar a preparar la oferta.'}</span></div>}
+    </div>
+    {selectedPublication && <div className="panel data-preview cycle-products"><div className="panel-heading"><div><h3>Productos del ciclo</h3><p>{displayValue(selectedPublication.fecha_publicacion)} · {displayValue(selectedPublication.estado)}</p></div><button className="secondary-button" onClick={() => setSelectedId('')}>Cerrar detalle</button></div>
+      {selectedPublication.estado === 'borrador' && <form className="cycle-product-form" onSubmit={(event) => void addWeeklyProduct(event)}><label>Producto<select value={newItem.producto_id} required onChange={(event) => setNewItem((value) => ({ ...value, producto_id: event.target.value }))}><option value="">Selecciona…</option>{products.map((product) => <option key={product.id} value={product.id}>{product.nombre}</option>)}</select></label><label>Unidad<select value={newItem.unidad_id} required onChange={(event) => setNewItem((value) => ({ ...value, unidad_id: event.target.value }))}><option value="">Selecciona…</option>{units.map((unit) => <option key={unit.id} value={unit.id}>{unit.nombre}</option>)}</select></label><label>Precio<input type="number" min="0" step="0.01" required value={newItem.precio} onChange={(event) => setNewItem((value) => ({ ...value, precio: event.target.value }))} /></label><label>Stock<input type="number" min="0" step="0.001" required value={newItem.stock} onChange={(event) => setNewItem((value) => ({ ...value, stock: event.target.value }))} /></label><button type="submit" className="primary-button" disabled={saving}><Plus size={14} /> Agregar</button></form>}
+      {items.length ? <div className="table-scroll"><table className="data-table"><thead><tr><th>Producto</th><th>Unidad</th><th>Precio</th><th>Stock inicial</th><th>Disponible</th><th>Activo</th></tr></thead><tbody>{items.map((item) => <tr key={String(item.id)}><td>{productName(item.producto_id)}</td><td>{unitName(item.unidad_id)}</td><td>${displayValue(item.precio)}</td><td>{displayValue(item.stock_inicial)}</td><td>{displayValue(item.stock_disponible)}</td><td>{displayValue(item.activo)}</td></tr>)}</tbody></table></div> : <div className="empty-table"><strong>Aún no hay productos</strong><span>Agrega productos al borrador y después publica el ciclo.</span></div>}
+    </div>}
   </>
 }
 
