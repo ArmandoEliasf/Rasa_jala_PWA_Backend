@@ -357,7 +357,8 @@ returns trigger language plpgsql set search_path = '' as $$
 begin
   if new.rol_id is distinct from old.rol_id
      and coalesce(auth.role(), '') not in ('service_role','supabase_admin')
-     and current_user <> 'postgres'
+     and current_user not in ('postgres','supabase_admin')
+     and session_user not in ('postgres','supabase_admin')
      and not public.tiene_rol(array['administrador']) then
     raise exception 'Solo un administrador puede cambiar roles';
   end if;

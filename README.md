@@ -14,6 +14,8 @@ Usa un proyecto Supabase vacío y ejecuta `supabase_rassa.sql` en SQL Editor. Es
 
 El documento de diccionario asociado explica el esquema y sus reglas. La clave `service_role` no se utiliza en el frontend.
 
+Para preparar cuentas de prueba, sigue [`README_USUARIOS_DE_PRUEBA.md`](README_USUARIOS_DE_PRUEBA.md) y ejecuta [`usuarios_prueba_supabase.sql`](usuarios_prueba_supabase.sql) después de crear primero las cuentas en Supabase Auth.
+
 ## Configuración local
 
 ```powershell
