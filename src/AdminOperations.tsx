@@ -10,6 +10,18 @@ const dateTime = (value: unknown) => value ? new Date(String(value)).toLocaleStr
 const dateText = (value: unknown) => value ? new Date(`${String(value).slice(0, 10)}T12:00:00`).toLocaleDateString('es-MX') : '—'
 const title = (value: string) => value.replaceAll('_', ' ').replace(/^\w/, (c) => c.toLocaleUpperCase())
 
+async function invokeAdminUsers(body: Record<string, unknown>) {
+  if (!supabase) throw new Error('Supabase no está configurado.')
+  const { data, error } = await supabase.auth.getSession()
+  if (error) throw error
+  const accessToken = data.session?.access_token
+  if (!accessToken) throw new Error('La sesión administrativa expiró. Inicia sesión de nuevo.')
+  return supabase.functions.invoke('admin-users', {
+    body,
+    headers: { Authorization: `Bearer ${accessToken}` },
+  })
+}
+
 function ModuleHeader({ eyebrow, heading, description, onRefresh }: { eyebrow: string; heading: string; description: string; onRefresh: () => void }) {
   return <div className="module-header"><div><div className="module-eyebrow">{eyebrow}</div><h1>{heading}</h1><p>{description}</p></div><button className="secondary-button" onClick={onRefresh}><Activity size={15} /> Actualizar</button></div>
 }
@@ -48,13 +60,15 @@ export function UsersAdmin({ profileId }: { profileId: string }) {
     let live = true
     setError('')
     void Promise.all([
-      supabase.functions.invoke('admin-users', { body: { action: 'list' } }),
+      invokeAdminUsers({ action: 'list' }),
       supabase.from('roles').select('nombre').order('id'),
     ]).then(([result, roleResult]) => {
       if (!live) return
       if (result.error || result.data?.error) setError(result.data?.error ?? result.error?.message ?? 'No se pudieron cargar las cuentas')
       else setUsers((result.data?.users ?? []) as Row[])
       setRoles((roleResult.data ?? []).map((item) => item.nombre))
+    }).catch((cause: unknown) => {
+      if (live) setError(cause instanceof Error ? cause.message : 'No se pudieron cargar las cuentas')
     })
     return () => { live = false }
   }, [reload])
@@ -63,11 +77,17 @@ export function UsersAdmin({ profileId }: { profileId: string }) {
     event.preventDefault()
     if (!supabase) return
     setSaving(true); setError(''); setMessage('')
-    const { data, error: invokeError } = await supabase.functions.invoke('admin-users', {
-      body: { action: 'invite', email, nombres, apellido_paterno: apellidoPaterno, apellido_materno: apellidoMaterno, telefono, rol },
-    })
+    let data: { error?: string; message?: string } | null = null
+    let invokeError: Error | null = null
+    try {
+      const result = await invokeAdminUsers({ action: 'invite', email, nombres, apellido_paterno: apellidoPaterno, apellido_materno: apellidoMaterno, telefono, rol })
+      data = result.data
+      invokeError = result.error
+    } catch (cause) {
+      invokeError = cause instanceof Error ? cause : new Error('No se pudo enviar la invitación')
+    }
     let invokeMessage = invokeError?.message
-    const response = (invokeError as { context?: unknown } | null)?.context
+    const response = (invokeError as (Error & { context?: unknown }) | null)?.context
     if (response instanceof Response) {
       try {
         const body = await response.clone().json() as { error?: string; message?: string }
@@ -78,7 +98,7 @@ export function UsersAdmin({ profileId }: { profileId: string }) {
     }
     if (invokeError || data?.error) setError(data?.error ?? invokeMessage ?? 'No se pudo enviar la invitación')
     else {
-      setMessage(data.message ?? 'Invitación enviada. La persona recibirá un enlace para crear su contraseña.')
+      setMessage(data?.message ?? 'Invitación enviada. La persona recibirá un enlace para crear su contraseña.')
       setEmail(''); setNombres(''); setApellidoPaterno(''); setApellidoMaterno(''); setTelefono('')
       refresh()
     }
@@ -100,9 +120,15 @@ export function UsersAdmin({ profileId }: { profileId: string }) {
     if (rpcError) setError(rpcError.message)
     else {
       if (changes.activo !== undefined) {
-        const { data, error: authError } = await supabase.functions.invoke('admin-users', {
-          body: { action: 'set-access', user_id: user.id, active: nextActive },
-        })
+        let data: { error?: string } | null = null
+        let authError: Error | null = null
+        try {
+          const result = await invokeAdminUsers({ action: 'set-access', user_id: user.id, active: nextActive })
+          data = result.data
+          authError = result.error
+        } catch (cause) {
+          authError = cause instanceof Error ? cause : new Error('No se pudo actualizar el acceso de autenticación')
+        }
         if (authError || data?.error) setError(`El perfil cambió, pero no se pudo actualizar el bloqueo de Supabase Auth: ${data?.error ?? authError?.message}`)
         else setMessage('Cuenta actualizada y acceso de autenticación sincronizado.')
       } else setMessage('Rol actualizado.')
