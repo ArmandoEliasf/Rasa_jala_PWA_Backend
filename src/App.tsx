@@ -125,7 +125,10 @@ function App() {
     const roleValue = Array.isArray(data.roles) ? data.roles[0] : data.roles
     const nextProfile = { ...data, email, roles: roleValue } as Profile
     if (!nextProfile.activo) throw new Error('Esta cuenta está desactivada. Contacta al equipo administrador.')
-    if (!['administrador', 'vendedor'].includes(nextProfile.roles?.nombre ?? '')) throw new Error('Este acceso es exclusivo para los perfiles de administración y ventas.')
+    if (!['administrador', 'vendedor'].includes(nextProfile.roles?.nombre ?? '')) {
+      if (nextProfile.roles?.nombre === 'comprador') throw new Error('Tu cuenta de comprador está activa. El espacio de compras todavía está en desarrollo.')
+      throw new Error('El perfil agricultor todavía no tiene un espacio de acceso en esta versión.')
+    }
     setProfile(nextProfile)
   }, [])
 
@@ -158,6 +161,40 @@ function App() {
       await supabase.auth.signOut()
       setAuthError(cause instanceof Error ? cause.message : 'No se pudo cargar el perfil.')
     }
+  }
+
+  const register = async (input: { email: string; password: string; nombres: string; apellidoPaterno: string; apellidoMaterno: string; telefono: string; domicilio: string; role: 'comprador' | 'vendedor' }) => {
+    if (!supabase) return 'Supabase no está configurado.'
+    const { data, error } = await supabase.auth.signUp({
+      email: input.email.trim(),
+      password: input.password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/`,
+        data: {
+          rol_publico: input.role,
+          nombres: input.nombres.trim(),
+          apellido_paterno: input.apellidoPaterno.trim(),
+          apellido_materno: input.apellidoMaterno.trim() || null,
+          telefono: input.telefono.trim() || null,
+          domicilio: input.domicilio.trim() || null,
+        },
+      },
+    })
+    if (error) return error.message
+    if (data.session && data.user) {
+      if (input.role === 'comprador') {
+        await supabase.auth.signOut()
+        return 'Cuenta creada. El acceso de compras todavía está en desarrollo; inicia sesión cuando ese módulo esté disponible.'
+      }
+      try {
+        await loadProfile(data.user.id, data.user.email ?? input.email.trim())
+        return 'Cuenta creada. Ya puedes comenzar.'
+      } catch (cause) {
+        await supabase.auth.signOut()
+        return cause instanceof Error ? cause.message : 'La cuenta se creó, pero no se pudo abrir la sesión.'
+      }
+    }
+    return 'Cuenta creada. Revisa tu correo para confirmar la dirección antes de iniciar sesión.'
   }
 
   const resetPassword = async (email: string) => {
@@ -227,7 +264,7 @@ function App() {
   if (checking) return <div className="splash"><div className="splash-logo"><Leaf size={25} /></div><div className="loader" /><span>Preparando tu espacio...</span></div>
   if (!isSupabaseConfigured) return <SetupScreen />
   if (recoveryMode) return <RecoveryScreen onUpdate={finishPasswordReset} error={authError} />
-  if (!profile) return <LoginScreen onSignIn={signIn} onForgotPassword={resetPassword} error={authError} dark={dark} toggleTheme={toggle} />
+  if (!profile) return <LoginScreen onSignIn={signIn} onRegister={register} onForgotPassword={resetPassword} error={authError} dark={dark} toggleTheme={toggle} />
   if (profile.roles?.nombre === 'vendedor') return <SellerPortal profile={profile} dark={dark} toggleTheme={toggle} onSignOut={signOut} />
 
   return <div className="app-shell">
@@ -267,30 +304,49 @@ function SetupScreen() {
   return <div className="setup-screen"><div className="setup-card"><div className="brand-mark setup-mark"><Leaf size={24} /></div><span className="eyebrow">CONFIGURACIÓN INICIAL</span><h1>Conecta Rassa con Supabase</h1><p>La interfaz está lista para configurarse. Agrega la URL y la clave pública de tu proyecto en el archivo <code>.env.local</code>.</p><div className="setup-code"><span>VITE_SUPABASE_URL=...</span><span>VITE_SUPABASE_PUBLISHABLE_KEY=...</span></div><p className="setup-footnote">Usa únicamente la clave publicable. Nunca coloques la clave <code>service_role</code> en una PWA.</p></div></div>
 }
 
-function LoginScreen({ onSignIn, onForgotPassword, error, dark, toggleTheme }: { onSignIn: (email: string, password: string) => Promise<void>; onForgotPassword: (email: string) => Promise<void>; error: string; dark: boolean; toggleTheme: () => void }) {
+function LoginScreen({ onSignIn, onRegister, onForgotPassword, error, dark, toggleTheme }: { onSignIn: (email: string, password: string) => Promise<void>; onRegister: (input: { email: string; password: string; nombres: string; apellidoPaterno: string; apellidoMaterno: string; telefono: string; domicilio: string; role: 'comprador' | 'vendedor' }) => Promise<string>; onForgotPassword: (email: string) => Promise<void>; error: string; dark: boolean; toggleTheme: () => void }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordConfirmation, setPasswordConfirmation] = useState('')
+  const [nombres, setNombres] = useState('')
+  const [apellidoPaterno, setApellidoPaterno] = useState('')
+  const [apellidoMaterno, setApellidoMaterno] = useState('')
+  const [telefono, setTelefono] = useState('')
+  const [domicilio, setDomicilio] = useState('')
+  const [role, setRole] = useState<'comprador' | 'vendedor'>('comprador')
+  const [registerMode, setRegisterMode] = useState(false)
+  const [localMessage, setLocalMessage] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setLocalMessage('')
+    if (registerMode && password !== passwordConfirmation) { setLocalMessage('Las contraseñas no coinciden.'); return }
     setLoading(true)
-    await onSignIn(email.trim(), password)
+    if (registerMode) {
+      const result = await onRegister({ email, password, nombres, apellidoPaterno, apellidoMaterno, telefono, domicilio, role })
+      if (result.startsWith('Cuenta creada.')) {
+        setLocalMessage(result)
+        if (result.includes('Revisa tu correo')) setRegisterMode(false)
+      } else setLocalMessage(result)
+    } else await onSignIn(email.trim(), password)
     setLoading(false)
   }
   return <div className="login-shell">
     <div className="login-decoration"><div className="decoration-grid" /><div className="login-brand"><Brand /></div><div className="login-quote"><div className="quote-mark">“</div><h1>Una red que<br /><em>alimenta comunidad.</em></h1><p>Productos locales, relaciones justas y una comunidad que crece en conjunto.</p><div className="quote-line" /><span>RED AGROECOLÓGICA · JALA, NAYARIT</span></div><div className="green-orb orb-one" /><div className="green-orb orb-two" /><div className="leaf-pattern"><Leaf /><Leaf /><Leaf /></div><div className="login-bottom">Cultivamos confianza, cosechamos futuro.</div></div>
-    <div className="login-main"><button className="icon-button login-theme" onClick={toggleTheme} title={dark ? 'Tema claro' : 'Tema oscuro'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><div className="login-card"><div className="login-icon"><ShieldCheck size={22} /></div><span className="eyebrow">PANEL DE ADMINISTRACIÓN</span><h2>Qué gusto verte</h2><p className="login-subtitle">Inicia sesión para continuar con tu espacio de trabajo.</p>
+    <div className={`login-main ${registerMode ? 'register-mode' : ''}`}><button className="icon-button login-theme" onClick={toggleTheme} title={dark ? 'Tema claro' : 'Tema oscuro'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><div className={`login-card ${registerMode ? 'register-mode' : ''}`}><div className="login-icon"><ShieldCheck size={22} /></div><span className="eyebrow">{registerMode ? 'ÚNETE A RASSA JALA' : 'ACCESO AL SISTEMA'}</span><h2>{registerMode ? 'Crea tu cuenta' : 'Qué gusto verte'}</h2><p className="login-subtitle">{registerMode ? 'Regístrate como comprador o vendedor.' : 'Inicia sesión para continuar con tu espacio de trabajo.'}</p>
       <form onSubmit={submit} className="login-form">
+        {registerMode && <><label htmlFor="register-role">Quiero registrarme como</label><select id="register-role" className="register-select" value={role} onChange={(event) => setRole(event.target.value as 'comprador' | 'vendedor')}><option value="comprador">Comprador</option><option value="vendedor">Vendedor</option></select><div className="register-fields"><div><label htmlFor="register-names">Nombre(s)</label><input id="register-names" value={nombres} onChange={(event) => setNombres(event.target.value)} required maxLength={100} autoComplete="given-name" /></div><div><label htmlFor="register-lastname">Apellido paterno</label><input id="register-lastname" value={apellidoPaterno} onChange={(event) => setApellidoPaterno(event.target.value)} required maxLength={100} autoComplete="family-name" /></div><div><label htmlFor="register-maternal">Apellido materno <span>(opcional)</span></label><input id="register-maternal" value={apellidoMaterno} onChange={(event) => setApellidoMaterno(event.target.value)} maxLength={100} /></div><div><label htmlFor="register-phone">Teléfono <span>(opcional)</span></label><input id="register-phone" type="tel" value={telefono} onChange={(event) => setTelefono(event.target.value)} maxLength={20} pattern="[+0-9() -]{7,20}" title="Usa entre 7 y 20 caracteres: números, +, espacios o paréntesis." autoComplete="tel" /></div></div><label htmlFor="register-address">Domicilio <span>(opcional)</span></label><input className="register-text-input" id="register-address" value={domicilio} onChange={(event) => setDomicilio(event.target.value)} maxLength={300} autoComplete="street-address" />{role === 'vendedor' ? <p className="register-hint">El vendedor solo verá pedidos que administración le asigne.</p> : <p className="register-hint">El espacio para compras todavía está en desarrollo.</p>}</>}
         <label htmlFor="email">Correo electrónico</label>
-        <div className="input-wrap"><UserRound size={17} /><input id="email" type="email" autoComplete="username" placeholder="nombre@rassa.mx" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
-        <div className="password-label"><label htmlFor="password">Contraseña</label><button type="button" className="text-link" onClick={() => void onForgotPassword(email)}>¿La olvidaste?</button></div>
-        <div className="input-wrap"><ShieldCheck size={17} /><input id="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Ingresa tu contraseña" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} /><button type="button" className="input-action" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
-        <div className="form-security-note"><ShieldCheck size={14} /><span>La sesión se mantiene de forma segura en este dispositivo.</span></div>
-        {error && <div className={error.startsWith('Si el correo') || error.startsWith('Contraseña actualizada') ? 'form-success' : 'form-error'}>{error}</div>}
-        <button className="primary-button login-submit" type="submit" disabled={loading}>{loading ? <><span className="button-spinner" /> Verificando acceso...</> : <>Ingresar al panel <ArrowRight size={17} /></>}</button>
+        <div className="input-wrap"><UserRound size={17} /><input id="email" type="email" autoComplete="email" placeholder="nombre@correo.com" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
+        <div className="password-label"><label htmlFor="password">Contraseña</label>{!registerMode && <button type="button" className="text-link" onClick={() => void onForgotPassword(email)}>¿La olvidaste?</button>}</div>
+        <div className="input-wrap"><ShieldCheck size={17} /><input id="password" type={showPassword ? 'text' : 'password'} autoComplete={registerMode ? 'new-password' : 'current-password'} placeholder={registerMode ? 'Al menos 8 caracteres' : 'Ingresa tu contraseña'} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={registerMode ? 8 : 6} /><button type="button" className="input-action" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+        {registerMode && <><label htmlFor="password-confirmation">Confirmar contraseña</label><div className="input-wrap"><ShieldCheck size={17} /><input id="password-confirmation" type={showPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="Repite tu contraseña" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} required minLength={8} /></div></>}
+        {!registerMode && <div className="form-security-note"><ShieldCheck size={14} /><span>La sesión se mantiene de forma segura en este dispositivo.</span></div>}
+        {localMessage && <div className={localMessage.startsWith('Cuenta creada.') ? 'form-success' : 'form-error'}>{localMessage}</div>}{error && <div className={error.startsWith('Si el correo') || error.startsWith('Contraseña actualizada') ? 'form-success' : 'form-error'}>{error}</div>}
+        <button className="primary-button login-submit" type="submit" disabled={loading}>{loading ? <><span className="button-spinner" /> {registerMode ? 'Creando cuenta...' : 'Verificando acceso...'}</> : <>{registerMode ? 'Crear cuenta' : 'Ingresar al panel'} <ArrowRight size={17} /></>}</button>
       </form>
-      <div className="login-security"><ShieldCheck size={15} /><span>Acceso seguro con autenticación protegida</span></div></div><div className="login-footer"><span>© 2026 Rassa JALA</span><span>Ayuda</span><span>Privacidad</span></div></div>
+      <div className="login-security"><ShieldCheck size={15} /><span>Acceso seguro con autenticación protegida</span></div><button className="register-switch" type="button" onClick={() => { setRegisterMode(!registerMode); setLocalMessage('') }}>{registerMode ? '¿Ya tienes una cuenta? Inicia sesión' : '¿Nuevo en Rassa? Crea una cuenta'}</button></div><div className="login-footer"><span>© 2026 Rassa JALA</span><span>Ayuda</span><span>Privacidad</span></div></div>
   </div>
 }
 

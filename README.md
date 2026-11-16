@@ -60,6 +60,17 @@ Haz esta prueba con una dirección de correo a la que tengas acceso y que todav�
 
 Para preparar cuentas de prueba, sigue [`README_USUARIOS_DE_PRUEBA.md`](README_USUARIOS_DE_PRUEBA.md) y ejecuta [`usuarios_prueba_supabase.sql`](usuarios_prueba_supabase.sql) después de crear primero las cuentas en Supabase Auth.
 
+### Registro público
+
+La pantalla **Crear una cuenta** permite registrarse como comprador o vendedor. No permite crear administradores ni agricultores. Las cuentas de vendedor quedan limitadas a los pedidos que el administrador les asigne.
+
+1. Ejecuta [`sql/public_registration_supabase.sql`](sql/public_registration_supabase.sql) en Supabase SQL Editor.
+2. En **Authentication → Settings**, permite nuevos registros y conserva **Confirm email** habilitado para uso real.
+3. En **Authentication → URL Configuration**, agrega la URL de desarrollo (`http://localhost:5174/**`) y la URL Netlify del sitio a **Redirect URLs**.
+4. Abre **Crear una cuenta**, completa los datos y confirma el correo si Auth lo solicita. Tras confirmar, inicia sesión con la cuenta.
+
+El formulario no necesita un dominio propio. Para que personas fuera del equipo puedan confirmar su correo, sí necesitas configurar un SMTP que pueda enviarles mensajes: el remitente predeterminado de Supabase solo entrega a direcciones del equipo de la organización y tiene un límite de 2 correos por hora. Para probarlo sin dominio puedes desactivar temporalmente **Confirm email**, pero no lo dejes así en un sitio público porque Auth aceptará correos sin verificar. Supabase también documenta una configuración de SMTP de Google con contraseña de aplicación; consulta los requisitos de seguridad de Google antes de elegirla.
+
 ## Configuración local
 
 ```powershell
@@ -95,7 +106,8 @@ npm run dev
 
 - Inicio de sesión con correo y contraseña mediante Supabase Auth.
 - Recuperación de contraseña por correo.
-- Solo permite entrar a perfiles activos con rol administrador o vendedor; los demás módulos siguen pendientes.
+- Solo permite entrar a perfiles activos con rol administrador o vendedor; el módulo de compras todavía está pendiente.
+- Registro público con Supabase Auth para comprador y vendedor; los roles administrador y agricultor permanecen protegidos.
 - Los perfiles vendedor activos entran a un espacio separado con sus pedidos asignados, detalle, historial y avance seguro de estados.
 - La sesión de autenticación se guarda en `sessionStorage` y el panel cierra la sesión después de 30 minutos sin actividad. La opción del navegador para restaurar pestañas puede restaurar también su sesión; la expiración por inactividad se aplica al volver a abrirla.
 - Edición del perfil personal (nombre, apellidos, teléfono y domicilio); el correo se muestra desde Auth y se cambia desde un flujo separado de Auth.

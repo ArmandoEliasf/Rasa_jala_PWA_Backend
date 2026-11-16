@@ -335,16 +335,23 @@ $$;
 revoke all on function public.es_integrante(uuid) from public;
 grant execute on function public.es_integrante(uuid) to authenticated;
 
--- Perfil de comprador por defecto tras alta en Auth; roles privilegiados se asignan por administración.
+-- Registro público solo acepta comprador o vendedor. Admin/agricultor no se eligen aquí.
 create or replace function public.crear_perfil_comprador()
 returns trigger language plpgsql security definer set search_path = '' as $$
-declare comprador_role smallint;
+declare nuevo_rol smallint; nombre_rol text;
 begin
-  select id into comprador_role from public.roles where nombre = 'comprador';
-  insert into public.perfiles(id, rol_id, nombres, apellido_paterno)
-  values (new.id, comprador_role,
+  nombre_rol := coalesce(nullif(new.raw_user_meta_data->>'rol_publico',''), 'comprador');
+  if nombre_rol not in ('comprador','vendedor') then
+    raise exception 'El registro público solo permite los roles comprador y vendedor';
+  end if;
+  select id into nuevo_rol from public.roles where nombre = nombre_rol;
+  insert into public.perfiles(id, rol_id, nombres, apellido_paterno, apellido_materno, telefono, domicilio)
+  values (new.id, nuevo_rol,
     coalesce(nullif(new.raw_user_meta_data->>'nombres',''), 'Pendiente'),
-    coalesce(nullif(new.raw_user_meta_data->>'apellido_paterno',''), 'Pendiente'));
+    coalesce(nullif(new.raw_user_meta_data->>'apellido_paterno',''), 'Pendiente'),
+    nullif(new.raw_user_meta_data->>'apellido_materno',''),
+    nullif(new.raw_user_meta_data->>'telefono',''),
+    nullif(new.raw_user_meta_data->>'domicilio',''));
   return new;
 end;
 $$;
@@ -464,7 +471,7 @@ create policy publicaciones_lectura on public.publicaciones_semanales for select
 create policy productos_publicados_lectura on public.productos_publicados for select to anon, authenticated using (activo and exists (
   select 1 from public.publicaciones_semanales ps where ps.id = publicacion_id and ps.estado = 'publicada'));
 
-create policy perfiles_select on public.perfiles for select to authenticated using (id = (select auth.uid()) or public.tiene_rol(array['administrador','vendedor']));
+create policy perfiles_select on public.perfiles for select to authenticated using (id = (select auth.uid()) or public.tiene_rol(array['administrador']) or (public.tiene_rol(array['vendedor']) and exists(select 1 from public.pedidos p where p.vendedor_id = (select auth.uid()) and p.comprador_id = perfiles.id)));
 create policy perfiles_update on public.perfiles for update to authenticated using (id = (select auth.uid()) or public.tiene_rol(array['administrador'])) with check (id = (select auth.uid()) or public.tiene_rol(array['administrador']));
 create policy roles_admin on public.roles for all to authenticated using (public.tiene_rol(array['administrador'])) with check (public.tiene_rol(array['administrador']));
 create policy productos_admin_read on public.productos for all to authenticated using (public.tiene_rol(array['administrador'])) with check (public.tiene_rol(array['administrador']));
@@ -488,10 +495,10 @@ create policy historial_select_partes on public.historial_pedido for select to a
 -- El historial operativo lo escriben RPCs verificadas; evita inserciones manuales por el cliente.
 create policy historial_staff_write on public.historial_pedido for insert to authenticated with check (public.tiene_rol(array['administrador']));
 
-create policy pagos_partes_select on public.pagos for select to authenticated using (public.tiene_rol(array['administrador','vendedor']) or exists(select 1 from public.pedidos p where p.id = pedido_id and p.comprador_id = (select auth.uid())));
-create policy pagos_staff_write on public.pagos for insert to authenticated with check (public.tiene_rol(array['administrador','vendedor']));
-create policy recibos_partes_select on public.recibos for select to authenticated using (public.tiene_rol(array['administrador','vendedor']) or exists(select 1 from public.pagos pg join public.pedidos p on p.id = pg.pedido_id where pg.id = pago_id and p.comprador_id = (select auth.uid())));
-create policy recibos_staff_write on public.recibos for insert to authenticated with check (public.tiene_rol(array['administrador','vendedor']));
+create policy pagos_partes_select on public.pagos for select to authenticated using (public.tiene_rol(array['administrador']) or exists(select 1 from public.pedidos p where p.id = pedido_id and (p.comprador_id = (select auth.uid()) or p.vendedor_id = (select auth.uid()))));
+create policy pagos_staff_write on public.pagos for insert to authenticated with check (public.tiene_rol(array['administrador']));
+create policy recibos_partes_select on public.recibos for select to authenticated using (public.tiene_rol(array['administrador']) or exists(select 1 from public.pagos pg join public.pedidos p on p.id = pg.pedido_id where pg.id = pago_id and (p.comprador_id = (select auth.uid()) or p.vendedor_id = (select auth.uid()))));
+create policy recibos_staff_write on public.recibos for insert to authenticated with check (public.tiene_rol(array['administrador']));
 
 create policy familia_members_read on public.familias for select to authenticated using (jefe_id = (select auth.uid()) or exists(select 1 from public.integrantes_familia f where f.familia_id = id and f.usuario_id = (select auth.uid())) or public.tiene_rol(array['administrador']));
 create policy familia_admin_manage on public.familias for all to authenticated using (public.tiene_rol(array['administrador'])) with check (public.tiene_rol(array['administrador']));
@@ -510,11 +517,11 @@ create policy mensajes_sender_update on public.mensajes for update to authentica
 create policy adjuntos_member_select on public.adjuntos_mensaje for select to authenticated using (exists(select 1 from public.mensajes m where m.id = mensaje_id and public.es_integrante(m.conversacion_id)));
 create policy adjuntos_member_insert on public.adjuntos_mensaje for insert to authenticated with check (subido_por = (select auth.uid()) and exists(select 1 from public.mensajes m where m.id = mensaje_id and m.emisor_id = (select auth.uid()) and public.es_integrante(m.conversacion_id)));
 
-create policy recoleccion_staff_read on public.recolecciones for select to authenticated using (agricultor_id = (select auth.uid()) or public.tiene_rol(array['administrador','vendedor']));
-create policy recoleccion_staff_write on public.recolecciones for all to authenticated using (public.tiene_rol(array['administrador','vendedor'])) with check (public.tiene_rol(array['administrador','vendedor']));
-create policy mermas_staff_read on public.mermas for select to authenticated using (public.tiene_rol(array['administrador','vendedor','agricultor']));
-create policy mermas_staff_write on public.mermas for insert to authenticated with check (public.tiene_rol(array['administrador','vendedor','agricultor']));
-create policy cortes_admin_vendedor on public.cortes_caja for all to authenticated using (public.tiene_rol(array['administrador','vendedor'])) with check (public.tiene_rol(array['administrador','vendedor']));
+create policy recoleccion_staff_read on public.recolecciones for select to authenticated using (agricultor_id = (select auth.uid()) or public.tiene_rol(array['administrador']));
+create policy recoleccion_staff_write on public.recolecciones for all to authenticated using (public.tiene_rol(array['administrador'])) with check (public.tiene_rol(array['administrador']));
+create policy mermas_staff_read on public.mermas for select to authenticated using (public.tiene_rol(array['administrador']) or exists(select 1 from public.productos_publicados pp join public.publicaciones_semanales ps on ps.id = pp.publicacion_id where pp.id = producto_publicado_id and ps.agricultor_id = (select auth.uid())));
+create policy mermas_staff_write on public.mermas for insert to authenticated with check (public.tiene_rol(array['administrador']) or exists(select 1 from public.productos_publicados pp join public.publicaciones_semanales ps on ps.id = pp.publicacion_id where pp.id = producto_publicado_id and ps.agricultor_id = (select auth.uid())));
+create policy cortes_admin_vendedor on public.cortes_caja for all to authenticated using (public.tiene_rol(array['administrador'])) with check (public.tiene_rol(array['administrador']));
 create policy liquidaciones_admin_agricultor_read on public.liquidaciones for select to authenticated using (agricultor_id = (select auth.uid()) or public.tiene_rol(array['administrador']));
 create policy liquidaciones_admin_write on public.liquidaciones for all to authenticated using (public.tiene_rol(array['administrador'])) with check (public.tiene_rol(array['administrador']));
 create policy auditoria_admin_read on public.registros_auditoria for select to authenticated using (public.tiene_rol(array['administrador']));
