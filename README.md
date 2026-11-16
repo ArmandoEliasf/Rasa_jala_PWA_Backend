@@ -54,7 +54,7 @@ Haz esta prueba con una dirección de correo a la que tengas acceso y que todav�
 3. En el menú, abre **Usuarios y roles**. Completa **Correo electrónico**, **Rol inicial**, **Nombre(s)** y **Apellido paterno**; el apellido materno y el teléfono son opcionales. Pulsa **Enviar invitación**.
 4. Verifica el mensaje de confirmación en la aplicación y revisa la bandeja de entrada del correo invitado, incluida la carpeta de spam. El correo debe llegar desde el remitente configurado.
 5. Abre el enlace de invitación. La aplicación mostrará el formulario para establecer una contraseña. Guárdala y después inicia sesión desde la pantalla principal con ese correo y contraseña.
-6. Comprueba que la cuenta aparezca en **Usuarios y roles** con el rol elegido y acceso activo. Las cuentas vendedoras activas pueden iniciar sesión en el módulo de pedidos; el panel de administración sigue reservado al rol administrador. Comprador y agricultor todavía no tienen su espacio de usuario en la PWA.
+6. Comprueba que la cuenta aparezca en **Usuarios y roles** con el rol elegido y acceso activo. La aplicación dirige cada cuenta activa a su espacio según el rol; comprador y agricultor muestran una pantalla de bienvenida mientras se construyen esos módulos.
 
 **Si no llega o falla el enlace:** confirma que la dirección no estuviera registrada previamente; revisa el estado del envío en los logs de Auth/proveedor SMTP; verifica que el `APP_URL` corresponda al sitio que abriste y que esa URL esté permitida en **Authentication → URL Configuration → Redirect URLs**. Para errores de acceso de la función, confirma que `admin-users` esté activa y desplegada. No compartas ni incluyas en capturas la contraseña SMTP, la API key del proveedor ni claves de Supabase.
 
@@ -106,7 +106,7 @@ npm run dev
 
 - Inicio de sesión con correo y contraseña mediante Supabase Auth.
 - Recuperación de contraseña por correo.
-- Solo permite entrar a perfiles activos con rol administrador o vendedor; el módulo de compras todavía está pendiente.
+- Permite iniciar sesión a todos los perfiles activos y muestra un espacio distinto por rol: panel admin, pedidos de vendedor y pantallas de bienvenida para comprador/agricultor mientras se completan esos módulos.
 - Registro público con Supabase Auth para comprador y vendedor; los roles administrador y agricultor permanecen protegidos.
 - Los perfiles vendedor activos entran a un espacio separado con sus pedidos asignados, detalle, historial y avance seguro de estados.
 - La sesión de autenticación se guarda en `sessionStorage` y el panel cierra la sesión después de 30 minutos sin actividad. La opción del navegador para restaurar pestañas puede restaurar también su sesión; la expiración por inactividad se aplica al volver a abrirla.
@@ -126,7 +126,7 @@ La PWA sigue requiriendo conexión para las operaciones administrativas y el mó
 
 Después de actualizar el esquema base y `sql/admin_workflows_supabase.sql`, ejecuta [`sql/seller_workflows_supabase.sql`](sql/seller_workflows_supabase.sql) en Supabase SQL Editor. La función `vendedor_avanzar_pedido` valida en la base de datos que el usuario tenga rol vendedor activo, que el pedido esté asignado a su cuenta y que el cambio siga la secuencia permitida. El módulo solo muestra pedidos asignados y permite avanzar su estado; no permite reasignar ni cancelar pedidos.
 
-El backend anterior documenta un endpoint público `POST /api/auth/register/` para comprador y vendedor. Agricultor se creaba mediante un endpoint protegido por rol administrador, y admin no era una opción del registro público. La PWA actual aún no incluye pantalla de registro público: las cuentas se crean por invitación administrativa. Antes de habilitar registro abierto de vendedores, conviene definir cómo revisará administración las nuevas cuentas y las asignaciones de pedidos.
+El backend anterior documenta un endpoint público `POST /api/auth/register/` para comprador y vendedor. Agricultor se creaba mediante un endpoint protegido por rol administrador, y admin no era una opción del registro público. En la PWA el login carga el perfil asociado a Auth y dirige según su rol; el endpoint anterior también consultaba `/api/auth/me/` después de obtener los tokens para leer ese rol.
 
 ## Modo sin conexión previsto
 
