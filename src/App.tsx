@@ -11,6 +11,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { AuditAdmin, ChatAdmin, PaymentsAdmin, PickupsAdmin, SettlementsAdmin, UsersAdmin, WasteAdmin } from './AdminOperations'
+import { SellerPortal } from './SellerPortal'
 import type { AdminSection, Profile, RoleName } from './types'
 
 const navGroups: { label: string; items: { id: AdminSection; label: string; icon: LucideIcon }[] }[] = [
@@ -124,7 +125,7 @@ function App() {
     const roleValue = Array.isArray(data.roles) ? data.roles[0] : data.roles
     const nextProfile = { ...data, email, roles: roleValue } as Profile
     if (!nextProfile.activo) throw new Error('Esta cuenta está desactivada. Contacta al equipo administrador.')
-    if (nextProfile.roles?.nombre !== 'administrador') throw new Error('Este acceso es exclusivo para el perfil administrador.')
+    if (!['administrador', 'vendedor', 'comprador', 'agricultor'].includes(nextProfile.roles?.nombre ?? '')) throw new Error('Tu cuenta no tiene un rol Rassa válido. Contacta al administrador.')
     setProfile(nextProfile)
   }, [])
 
@@ -157,6 +158,36 @@ function App() {
       await supabase.auth.signOut()
       setAuthError(cause instanceof Error ? cause.message : 'No se pudo cargar el perfil.')
     }
+  }
+
+  const register = async (input: { email: string; password: string; nombres: string; apellidoPaterno: string; apellidoMaterno: string; telefono: string; domicilio: string; role: 'comprador' | 'vendedor' }) => {
+    if (!supabase) return 'Supabase no está configurado.'
+    const { data, error } = await supabase.auth.signUp({
+      email: input.email.trim(),
+      password: input.password,
+      options: {
+        emailRedirectTo: `${window.location.origin}/`,
+        data: {
+          rol_publico: input.role,
+          nombres: input.nombres.trim(),
+          apellido_paterno: input.apellidoPaterno.trim(),
+          apellido_materno: input.apellidoMaterno.trim() || null,
+          telefono: input.telefono.trim() || null,
+          domicilio: input.domicilio.trim() || null,
+        },
+      },
+    })
+    if (error) return error.message
+    if (data.session && data.user) {
+      try {
+        await loadProfile(data.user.id, data.user.email ?? input.email.trim())
+        return 'Cuenta creada. Ya puedes comenzar.'
+      } catch (cause) {
+        await supabase.auth.signOut()
+        return cause instanceof Error ? cause.message : 'La cuenta se creó, pero no se pudo abrir la sesión.'
+      }
+    }
+    return 'Cuenta creada. Revisa tu correo para confirmar la dirección antes de iniciar sesión.'
   }
 
   const resetPassword = async (email: string) => {
@@ -226,7 +257,9 @@ function App() {
   if (checking) return <div className="splash"><div className="splash-logo"><Leaf size={25} /></div><div className="loader" /><span>Preparando tu espacio...</span></div>
   if (!isSupabaseConfigured) return <SetupScreen />
   if (recoveryMode) return <RecoveryScreen onUpdate={finishPasswordReset} error={authError} />
-  if (!profile) return <LoginScreen onSignIn={signIn} onForgotPassword={resetPassword} error={authError} dark={dark} toggleTheme={toggle} />
+  if (!profile) return <LoginScreen onSignIn={signIn} onRegister={register} onForgotPassword={resetPassword} error={authError} dark={dark} toggleTheme={toggle} />
+  if (profile.roles?.nombre === 'vendedor') return <SellerPortal profile={profile} dark={dark} toggleTheme={toggle} onSignOut={signOut} />
+  if (profile.roles?.nombre === 'comprador' || profile.roles?.nombre === 'agricultor') return <RoleLanding profile={profile} dark={dark} toggleTheme={toggle} onSignOut={signOut} />
 
   return <div className="app-shell">
     {mobileNav && <button className="mobile-scrim" aria-label="Cerrar menú" onClick={() => setMobileNav(false)} />}
@@ -242,7 +275,7 @@ function App() {
       <div className="sidebar-bottom">
         <div className={`offline-pill ${online ? '' : 'offline'}`}><span className="online-indicator" /> {online ? 'Conectado' : 'Sin conexión'} <span className="offline-caption">· {online ? 'red disponible' : 'panel requiere internet'}</span></div>
         <button className={`nav-item ${active === 'perfil' ? 'selected' : ''}`} onClick={() => { setActive('perfil'); setMobileNav(false) }}><UserRound size={17} /><span>Mi perfil</span></button>
-        <div className="side-user"><div className="avatar avatar-green">{initials(profile)}</div><div className="side-user-text"><strong>{fullName(profile)}</strong><span>Administrador</span></div><button className="icon-button side-logout" title="Cerrar sesión" onClick={signOut}><LogOut size={16} /></button></div>
+        <div className="side-user"><div className="avatar avatar-green">{initials(profile)}</div><div className="side-user-text"><strong>{fullName(profile)}</strong><span>{roleLabels[profile.roles?.nombre ?? 'administrador']}</span></div><button className="icon-button side-logout" title="Cerrar sesión" onClick={signOut}><LogOut size={16} /></button></div>
       </div>
     </aside>
 
@@ -265,30 +298,49 @@ function SetupScreen() {
   return <div className="setup-screen"><div className="setup-card"><div className="brand-mark setup-mark"><Leaf size={24} /></div><span className="eyebrow">CONFIGURACIÓN INICIAL</span><h1>Conecta Rassa con Supabase</h1><p>La interfaz está lista para configurarse. Agrega la URL y la clave pública de tu proyecto en el archivo <code>.env.local</code>.</p><div className="setup-code"><span>VITE_SUPABASE_URL=...</span><span>VITE_SUPABASE_PUBLISHABLE_KEY=...</span></div><p className="setup-footnote">Usa únicamente la clave publicable. Nunca coloques la clave <code>service_role</code> en una PWA.</p></div></div>
 }
 
-function LoginScreen({ onSignIn, onForgotPassword, error, dark, toggleTheme }: { onSignIn: (email: string, password: string) => Promise<void>; onForgotPassword: (email: string) => Promise<void>; error: string; dark: boolean; toggleTheme: () => void }) {
+function LoginScreen({ onSignIn, onRegister, onForgotPassword, error, dark, toggleTheme }: { onSignIn: (email: string, password: string) => Promise<void>; onRegister: (input: { email: string; password: string; nombres: string; apellidoPaterno: string; apellidoMaterno: string; telefono: string; domicilio: string; role: 'comprador' | 'vendedor' }) => Promise<string>; onForgotPassword: (email: string) => Promise<void>; error: string; dark: boolean; toggleTheme: () => void }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordConfirmation, setPasswordConfirmation] = useState('')
+  const [nombres, setNombres] = useState('')
+  const [apellidoPaterno, setApellidoPaterno] = useState('')
+  const [apellidoMaterno, setApellidoMaterno] = useState('')
+  const [telefono, setTelefono] = useState('')
+  const [domicilio, setDomicilio] = useState('')
+  const [role, setRole] = useState<'comprador' | 'vendedor'>('comprador')
+  const [registerMode, setRegisterMode] = useState(false)
+  const [localMessage, setLocalMessage] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
-  const submit = async (event: FormEvent) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    setLocalMessage('')
+    if (registerMode && password !== passwordConfirmation) { setLocalMessage('Las contraseñas no coinciden.'); return }
     setLoading(true)
-    await onSignIn(email.trim(), password)
+    if (registerMode) {
+      const result = await onRegister({ email, password, nombres, apellidoPaterno, apellidoMaterno, telefono, domicilio, role })
+      if (result.startsWith('Cuenta creada.')) {
+        setLocalMessage(result)
+        if (result.includes('Revisa tu correo')) setRegisterMode(false)
+      } else setLocalMessage(result)
+    } else await onSignIn(email.trim(), password)
     setLoading(false)
   }
   return <div className="login-shell">
     <div className="login-decoration"><div className="decoration-grid" /><div className="login-brand"><Brand /></div><div className="login-quote"><div className="quote-mark">“</div><h1>Una red que<br /><em>alimenta comunidad.</em></h1><p>Productos locales, relaciones justas y una comunidad que crece en conjunto.</p><div className="quote-line" /><span>RED AGROECOLÓGICA · JALA, NAYARIT</span></div><div className="green-orb orb-one" /><div className="green-orb orb-two" /><div className="leaf-pattern"><Leaf /><Leaf /><Leaf /></div><div className="login-bottom">Cultivamos confianza, cosechamos futuro.</div></div>
-    <div className="login-main"><button className="icon-button login-theme" onClick={toggleTheme} title={dark ? 'Tema claro' : 'Tema oscuro'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><div className="login-card"><div className="login-icon"><ShieldCheck size={22} /></div><span className="eyebrow">PANEL DE ADMINISTRACIÓN</span><h2>Qué gusto verte</h2><p className="login-subtitle">Inicia sesión para continuar con tu espacio de trabajo.</p>
+    <div className={`login-main ${registerMode ? 'register-mode' : ''}`}><button className="icon-button login-theme" onClick={toggleTheme} title={dark ? 'Tema claro' : 'Tema oscuro'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><div className={`login-card ${registerMode ? 'register-mode' : ''}`}><div className="login-icon"><ShieldCheck size={22} /></div><span className="eyebrow">{registerMode ? 'ÚNETE A RASSA JALA' : 'ACCESO A RASSA JALA'}</span><h2>{registerMode ? 'Crea tu cuenta' : 'Bienvenido de nuevo'}</h2><p className="login-subtitle">{registerMode ? 'Regístrate como comprador o vendedor.' : 'Inicia sesión y te llevaremos al espacio de tu perfil.'}</p>{!registerMode && <div className="login-role-list"><span>Administrador</span><span>Vendedor</span><span>Agricultor</span><span>Comprador</span></div>}
       <form onSubmit={submit} className="login-form">
+        {registerMode && <><label htmlFor="register-role">Quiero registrarme como</label><select id="register-role" className="register-select" value={role} onChange={(event) => setRole(event.target.value as 'comprador' | 'vendedor')}><option value="comprador">Comprador</option><option value="vendedor">Vendedor</option></select><div className="register-fields"><div><label htmlFor="register-names">Nombre(s)</label><input id="register-names" value={nombres} onChange={(event) => setNombres(event.target.value)} required maxLength={100} autoComplete="given-name" /></div><div><label htmlFor="register-lastname">Apellido paterno</label><input id="register-lastname" value={apellidoPaterno} onChange={(event) => setApellidoPaterno(event.target.value)} required maxLength={100} autoComplete="family-name" /></div><div><label htmlFor="register-maternal">Apellido materno <span>(opcional)</span></label><input id="register-maternal" value={apellidoMaterno} onChange={(event) => setApellidoMaterno(event.target.value)} maxLength={100} /></div><div><label htmlFor="register-phone">Teléfono <span>(opcional)</span></label><input id="register-phone" type="tel" value={telefono} onChange={(event) => setTelefono(event.target.value)} maxLength={20} pattern="[+0-9() -]{7,20}" title="Usa entre 7 y 20 caracteres: números, +, espacios o paréntesis." autoComplete="tel" /></div></div><label htmlFor="register-address">Domicilio <span>(opcional)</span></label><input className="register-text-input" id="register-address" value={domicilio} onChange={(event) => setDomicilio(event.target.value)} maxLength={300} autoComplete="street-address" />{role === 'vendedor' ? <p className="register-hint">El vendedor solo verá pedidos que administración le asigne.</p> : <p className="register-hint">El espacio para compras todavía está en desarrollo.</p>}</>}
         <label htmlFor="email">Correo electrónico</label>
-        <div className="input-wrap"><UserRound size={17} /><input id="email" type="email" autoComplete="username" placeholder="nombre@rassa.mx" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
-        <div className="password-label"><label htmlFor="password">Contraseña</label><button type="button" className="text-link" onClick={() => void onForgotPassword(email)}>¿La olvidaste?</button></div>
-        <div className="input-wrap"><ShieldCheck size={17} /><input id="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" placeholder="Ingresa tu contraseña" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} /><button type="button" className="input-action" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
-        <div className="form-security-note"><ShieldCheck size={14} /><span>La sesión se mantiene de forma segura en este dispositivo.</span></div>
-        {error && <div className={error.startsWith('Si el correo') || error.startsWith('Contraseña actualizada') ? 'form-success' : 'form-error'}>{error}</div>}
-        <button className="primary-button login-submit" type="submit" disabled={loading}>{loading ? <><span className="button-spinner" /> Verificando acceso...</> : <>Ingresar al panel <ArrowRight size={17} /></>}</button>
+        <div className="input-wrap"><UserRound size={17} /><input id="email" type="email" autoComplete="email" placeholder="nombre@correo.com" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
+        <div className="password-label"><label htmlFor="password">Contraseña</label>{!registerMode && <button type="button" className="text-link" onClick={() => void onForgotPassword(email)}>¿La olvidaste?</button>}</div>
+        <div className="input-wrap"><ShieldCheck size={17} /><input id="password" type={showPassword ? 'text' : 'password'} autoComplete={registerMode ? 'new-password' : 'current-password'} placeholder={registerMode ? 'Al menos 8 caracteres' : 'Ingresa tu contraseña'} value={password} onChange={(e) => setPassword(e.target.value)} required minLength={registerMode ? 8 : 6} /><button type="button" className="input-action" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}>{showPassword ? <EyeOff size={16} /> : <Eye size={16} />}</button></div>
+        {registerMode && <><label htmlFor="password-confirmation">Confirmar contraseña</label><div className="input-wrap"><ShieldCheck size={17} /><input id="password-confirmation" type={showPassword ? 'text' : 'password'} autoComplete="new-password" placeholder="Repite tu contraseña" value={passwordConfirmation} onChange={(event) => setPasswordConfirmation(event.target.value)} required minLength={8} /></div></>}
+        {!registerMode && <div className="form-security-note"><ShieldCheck size={14} /><span>La sesión se mantiene de forma segura en este dispositivo.</span></div>}
+        {localMessage && <div className={localMessage.startsWith('Cuenta creada.') ? 'form-success' : 'form-error'}>{localMessage}</div>}{error && <div className={error.startsWith('Si el correo') || error.startsWith('Contraseña actualizada') ? 'form-success' : 'form-error'}>{error}</div>}
+        <button className="primary-button login-submit" type="submit" disabled={loading}>{loading ? <><span className="button-spinner" /> {registerMode ? 'Creando cuenta...' : 'Verificando acceso...'}</> : <>{registerMode ? 'Crear cuenta' : 'Ingresar a mi espacio'} <ArrowRight size={17} /></>}</button>
       </form>
-      <div className="login-security"><ShieldCheck size={15} /><span>Acceso seguro con autenticación protegida</span></div></div><div className="login-footer"><span>© 2026 Rassa JALA</span><span>Ayuda</span><span>Privacidad</span></div></div>
+      <div className="login-security"><ShieldCheck size={15} /><span>Acceso protegido según los permisos de tu cuenta</span></div><button className="register-switch" type="button" onClick={() => { setRegisterMode(!registerMode); setLocalMessage('') }}>{registerMode ? '¿Ya tienes una cuenta? Inicia sesión' : '¿Nuevo en Rassa? Crea una cuenta'}</button></div><div className="login-footer"><span>© 2026 Rassa JALA</span><span>Ayuda</span><span>Privacidad</span></div></div>
   </div>
 }
 
@@ -306,6 +358,20 @@ function RecoveryScreen({ onUpdate, error }: { onUpdate: (password: string) => P
     setSaving(false)
   }
   return <div className="recovery-shell"><form className="panel recovery-card" onSubmit={submit}><div className="login-icon"><ShieldCheck size={22} /></div><span className="eyebrow">SEGURIDAD DE LA CUENTA</span><h1>Crear contraseña nueva</h1><p>Elige una contraseña de al menos 8 caracteres para proteger tu cuenta.</p><label>Nueva contraseña<input type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></label><label>Confirmar contraseña<input type="password" autoComplete="new-password" value={confirmation} onChange={(e) => setConfirmation(e.target.value)} required minLength={8} /></label>{(localError || error) && <div className="form-error">{localError || error}</div>}<button className="primary-button" type="submit" disabled={saving}>{saving ? 'Actualizando...' : 'Guardar contraseña'}</button></form></div>
+}
+
+function RoleLanding({ profile, dark, toggleTheme, onSignOut }: { profile: Profile; dark: boolean; toggleTheme: () => void; onSignOut: () => Promise<void> }) {
+  const role = profile.roles?.nombre ?? 'comprador'
+  const isBuyer = role === 'comprador'
+  const title = isBuyer ? 'Tu comunidad de compras' : 'Tu espacio agrícola'
+  const description = isBuyer
+    ? 'Aquí podrás explorar productos locales, armar pedidos y consultar tus compras.'
+    : 'Aquí podrás publicar tus productos, revisar existencias y coordinar recolecciones.'
+  const Icon = isBuyer ? ShoppingBasket : Leaf
+  return <div className="app-shell role-app-shell">
+    <aside className="sidebar"><div className="sidebar-top"><Brand /></div><div className="workspace-switch"><div className="workspace-icon"><Icon size={16} /></div><div><strong>Rassa JALA</strong><span>Mi espacio</span></div></div><nav className="primary-nav"><div className="nav-group"><span className="nav-label">MI CUENTA</span><div className="nav-item selected"><UserRound size={17} /><span>Inicio</span></div></div></nav><div className="sidebar-bottom"><div className="side-user"><div className="avatar avatar-green">{initials(profile)}</div><div className="side-user-text"><strong>{fullName(profile)}</strong><span>{roleLabels[role]}</span></div><button className="icon-button side-logout" title="Cerrar sesión" onClick={() => void onSignOut()}><LogOut size={16} /></button></div></div></aside>
+    <main className="main-area"><header className="topbar"><div className="breadcrumbs"><span>Rassa JALA</span><ArrowRight size={13} /><strong>Mi espacio</strong></div><div className="topbar-actions"><button className="icon-button theme-button" title={dark ? 'Cambiar a tema claro' : 'Cambiar a tema oscuro'} onClick={toggleTheme}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="secondary-button" onClick={() => void onSignOut()}><LogOut size={15} /> Cerrar sesión</button></div></header><section className="page-content role-home-content"><div className="module-eyebrow"><span className="module-mark"><Icon size={14} /></span>ESPACIO DE {isBuyer ? 'COMPRAS' : 'AGRICULTURA'}</div><h1 className="role-home-title">Hola, {profile.nombres}</h1><p className="role-home-subtitle">Iniciaste sesión como {roleLabels[role].toLocaleLowerCase()}.</p><div className="panel role-placeholder"><div className="role-placeholder-icon"><Icon size={25} /></div><span className="eyebrow">RASSA JALA</span><h2>{title}</h2><p>{description}</p><div className="role-placeholder-note"><CircleHelp size={16} /><span>Este módulo se habilitará en una siguiente etapa. Tu cuenta ya está lista y puedes volver más tarde.</span></div></div></section><footer className="page-footer"><span>© 2026 Rassa JALA</span><span><ShieldCheck size={13} /> Tu sesión está protegida</span><span>{roleLabels[role]}</span></footer></main>
+  </div>
 }
 
 function Dashboard({ profile, setActive, online }: { profile: Profile; setActive: (id: AdminSection) => void; online: boolean }) {
