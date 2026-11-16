@@ -11,6 +11,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { isSupabaseConfigured, supabase } from './lib/supabase'
 import { AuditAdmin, ChatAdmin, PaymentsAdmin, PickupsAdmin, SettlementsAdmin, UsersAdmin, WasteAdmin } from './AdminOperations'
+import { SellerPortal } from './SellerPortal'
 import type { AdminSection, Profile, RoleName } from './types'
 
 const navGroups: { label: string; items: { id: AdminSection; label: string; icon: LucideIcon }[] }[] = [
@@ -124,7 +125,7 @@ function App() {
     const roleValue = Array.isArray(data.roles) ? data.roles[0] : data.roles
     const nextProfile = { ...data, email, roles: roleValue } as Profile
     if (!nextProfile.activo) throw new Error('Esta cuenta está desactivada. Contacta al equipo administrador.')
-    if (nextProfile.roles?.nombre !== 'administrador') throw new Error('Este acceso es exclusivo para el perfil administrador.')
+    if (!['administrador', 'vendedor'].includes(nextProfile.roles?.nombre ?? '')) throw new Error('Este acceso es exclusivo para los perfiles de administración y ventas.')
     setProfile(nextProfile)
   }, [])
 
@@ -227,6 +228,7 @@ function App() {
   if (!isSupabaseConfigured) return <SetupScreen />
   if (recoveryMode) return <RecoveryScreen onUpdate={finishPasswordReset} error={authError} />
   if (!profile) return <LoginScreen onSignIn={signIn} onForgotPassword={resetPassword} error={authError} dark={dark} toggleTheme={toggle} />
+  if (profile.roles?.nombre === 'vendedor') return <SellerPortal profile={profile} dark={dark} toggleTheme={toggle} onSignOut={signOut} />
 
   return <div className="app-shell">
     {mobileNav && <button className="mobile-scrim" aria-label="Cerrar menú" onClick={() => setMobileNav(false)} />}

@@ -480,11 +480,13 @@ with check (exists(select 1 from public.publicaciones_semanales ps where ps.id =
 
 create policy pedido_select_partes on public.pedidos for select to authenticated using (comprador_id = (select auth.uid()) or vendedor_id = (select auth.uid()) or public.tiene_rol(array['administrador']));
 create policy pedido_insert_comprador on public.pedidos for insert to authenticated with check (comprador_id = (select auth.uid()) and public.tiene_rol(array['comprador']));
-create policy pedido_update_staff on public.pedidos for update to authenticated using (vendedor_id = (select auth.uid()) or public.tiene_rol(array['vendedor','administrador'])) with check (vendedor_id = (select auth.uid()) or public.tiene_rol(array['vendedor','administrador']));
+-- Los vendedores avanzan pedidos asignados mediante la RPC transaccional; no editan filas directamente.
+create policy pedido_update_staff on public.pedidos for update to authenticated using (public.tiene_rol(array['administrador'])) with check (public.tiene_rol(array['administrador']));
 create policy detalles_select_partes on public.detalles_pedido for select to authenticated using (exists(select 1 from public.pedidos p where p.id = pedido_id and (p.comprador_id = (select auth.uid()) or p.vendedor_id = (select auth.uid()) or public.tiene_rol(array['administrador']))));
 create policy detalles_insert_comprador on public.detalles_pedido for insert to authenticated with check (exists(select 1 from public.pedidos p where p.id = pedido_id and p.comprador_id = (select auth.uid())));
 create policy historial_select_partes on public.historial_pedido for select to authenticated using (exists(select 1 from public.pedidos p where p.id = pedido_id and (p.comprador_id = (select auth.uid()) or p.vendedor_id = (select auth.uid()) or public.tiene_rol(array['administrador']))));
-create policy historial_staff_write on public.historial_pedido for insert to authenticated with check (public.tiene_rol(array['vendedor','administrador']));
+-- El historial operativo lo escriben RPCs verificadas; evita inserciones manuales por el cliente.
+create policy historial_staff_write on public.historial_pedido for insert to authenticated with check (public.tiene_rol(array['administrador']));
 
 create policy pagos_partes_select on public.pagos for select to authenticated using (public.tiene_rol(array['administrador','vendedor']) or exists(select 1 from public.pedidos p where p.id = pedido_id and p.comprador_id = (select auth.uid())));
 create policy pagos_staff_write on public.pagos for insert to authenticated with check (public.tiene_rol(array['administrador','vendedor']));
