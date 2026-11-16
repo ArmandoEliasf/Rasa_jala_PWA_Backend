@@ -66,7 +66,17 @@ export function UsersAdmin({ profileId }: { profileId: string }) {
     const { data, error: invokeError } = await supabase.functions.invoke('admin-users', {
       body: { action: 'invite', email, nombres, apellido_paterno: apellidoPaterno, apellido_materno: apellidoMaterno, telefono, rol },
     })
-    if (invokeError || data?.error) setError(data?.error ?? invokeError?.message ?? 'No se pudo enviar la invitación')
+    let invokeMessage = invokeError?.message
+    const response = (invokeError as { context?: unknown } | null)?.context
+    if (response instanceof Response) {
+      try {
+        const body = await response.clone().json() as { error?: string; message?: string }
+        invokeMessage = body.error ?? body.message ?? invokeMessage
+      } catch {
+        // Keep the SDK error text when the Edge Function response is not JSON.
+      }
+    }
+    if (invokeError || data?.error) setError(data?.error ?? invokeMessage ?? 'No se pudo enviar la invitación')
     else {
       setMessage(data.message ?? 'Invitación enviada. La persona recibirá un enlace para crear su contraseña.')
       setEmail(''); setNombres(''); setApellidoPaterno(''); setApellidoMaterno(''); setTelefono('')

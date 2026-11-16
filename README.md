@@ -30,21 +30,33 @@ La creación segura de usuarios vive en una Supabase Edge Function. Nunca se exp
 
 1. El CLI ya está fijado como dependencia de desarrollo en `package.json`; ejecuta `npx supabase login` para autenticarte.
 2. Vincula el repositorio al proyecto con `npx supabase link --project-ref <project-ref>`.
-3. Define la URL que usarán los enlaces de invitación. Para probar localmente:
+3. `APP_URL` en el proyecto vinculado está configurada con `https://rassajala.netlify.app` para enviar las invitaciones de producción al sitio publicado. Para cambiar temporalmente las invitaciones al entorno local:
 
    ```powershell
    npx supabase secrets set APP_URL=http://localhost:5174
    ```
 
-   Para invitaciones de producción, establece la URL pública de Netlify en `APP_URL`.
-4. Despliega la función:
+4. La función `admin-users` está desplegada y activa en el proyecto vinculado. Para volver a desplegar cambios:
 
    ```powershell
-   npx supabase functions deploy admin-users
+   npx supabase functions deploy admin-users --use-api
    ```
 
-5. En Supabase **Authentication → URL Configuration**, añade la URL local (`http://localhost:5174/**`) y la URL pública de Netlify (`https://<sitio>.netlify.app/**`) a **Redirect URLs**.
-6. Configura SMTP en **Authentication → SMTP Settings** para la entrega confiable de invitaciones. La función autentica al administrador que llama, y solo utiliza la clave de servicio dentro del entorno Edge Function.
+5. En el proyecto vinculado ya están permitidos `http://localhost:5174/` y `https://rassajala.netlify.app/` como redirects de autenticación. Revisa en Supabase **Authentication → URL Configuration** que **Site URL** use `https://rassajala.netlify.app` para los enlaces de autenticación que no especifican destino.
+6. Configura SMTP en **Authentication → SMTP Settings** para la entrega confiable de invitaciones. Esta configuración necesita credenciales de un proveedor de correo y se realiza en el panel de Supabase. La función autentica al administrador que llama, y solo utiliza la clave de servicio dentro del entorno Edge Function.
+
+### Probar una invitación real
+
+Haz esta prueba con una dirección de correo a la que tengas acceso y que todavía no exista como usuario en Supabase Auth.
+
+1. Comprueba que SMTP esté habilitado en Supabase y que el remitente/dominio estén verificados con tu proveedor. Para una prueba local, asegúrate de que `APP_URL` sea `http://localhost:5174`; para la PWA publicada, usa `https://rassajala.netlify.app`.
+2. Abre la aplicación en el entorno correspondiente e inicia sesión con una cuenta cuyo perfil tenga rol **administrador** y esté activo.
+3. En el menú, abre **Usuarios y roles**. Completa **Correo electrónico**, **Rol inicial**, **Nombre(s)** y **Apellido paterno**; el apellido materno y el teléfono son opcionales. Pulsa **Enviar invitación**.
+4. Verifica el mensaje de confirmación en la aplicación y revisa la bandeja de entrada del correo invitado, incluida la carpeta de spam. El correo debe llegar desde el remitente configurado.
+5. Abre el enlace de invitación. La aplicación mostrará el formulario para establecer una contraseña. Guárdala y después inicia sesión desde la pantalla principal con ese correo y contraseña.
+6. Comprueba que la cuenta aparezca en **Usuarios y roles** con el rol elegido y acceso activo. Esta PWA está restringida al rol administrador: una invitación a comprador, agricultor o vendedor puede completar el alta, pero esa cuenta no podrá entrar al panel administrativo.
+
+**Si no llega o falla el enlace:** confirma que la dirección no estuviera registrada previamente; revisa el estado del envío en los logs de Auth/proveedor SMTP; verifica que el `APP_URL` corresponda al sitio que abriste y que esa URL esté permitida en **Authentication → URL Configuration → Redirect URLs**. Para errores de acceso de la función, confirma que `admin-users` esté activa y desplegada. No compartas ni incluyas en capturas la contraseña SMTP, la API key del proveedor ni claves de Supabase.
 
 Para preparar cuentas de prueba, sigue [`README_USUARIOS_DE_PRUEBA.md`](README_USUARIOS_DE_PRUEBA.md) y ejecuta [`usuarios_prueba_supabase.sql`](usuarios_prueba_supabase.sql) después de crear primero las cuentas en Supabase Auth.
 
@@ -84,6 +96,7 @@ npm run dev
 - Inicio de sesión con correo y contraseña mediante Supabase Auth.
 - Recuperación de contraseña por correo.
 - Solo permite entrar a perfiles activos con rol administrador.
+- La sesión de autenticación se guarda en `sessionStorage` y el panel cierra la sesión después de 30 minutos sin actividad. La opción del navegador para restaurar pestañas puede restaurar también su sesión; la expiración por inactividad se aplica al volver a abrirla.
 - Edición del perfil personal (nombre, apellidos, teléfono y domicilio); el correo se muestra desde Auth y se cambia desde un flujo separado de Auth.
 - Resumen con conteos de perfiles, productos, pedidos y conversaciones.
 - Panel adaptable con navegación para usuarios, catálogo, ciclos, pedidos, familias/crédito, pagos/caja, recolecciones, mermas, liquidaciones, conversaciones y auditoría.

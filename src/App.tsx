@@ -80,6 +80,7 @@ const catalogResources: CatalogResource[] = [
 const roleLabels: Record<RoleName, string> = {
   administrador: 'Administrador', vendedor: 'Vendedor', agricultor: 'Agricultor', comprador: 'Comprador',
 }
+const ADMIN_IDLE_TIMEOUT_MS = 30 * 60 * 1000
 
 function useTheme() {
   const [dark, setDark] = useState(() => localStorage.getItem('rassa-theme') === 'dark')
@@ -181,6 +182,46 @@ function App() {
     setProfile(null)
     setActive('inicio')
   }
+
+  useEffect(() => {
+    if (!profile || !supabase) return
+    const client = supabase
+    let timer: ReturnType<typeof setTimeout>
+    let lastActivity = Date.now()
+    let expired = false
+
+    const expireSession = () => {
+      if (expired) return
+      expired = true
+      void client.auth.signOut()
+      setProfile(null)
+      setActive('inicio')
+      setAuthError('Tu sesión se cerró después de 30 minutos sin actividad. Inicia sesión para continuar.')
+    }
+    const scheduleExpiration = () => {
+      clearTimeout(timer)
+      const remaining = ADMIN_IDLE_TIMEOUT_MS - (Date.now() - lastActivity)
+      if (remaining <= 0) expireSession()
+      else timer = setTimeout(expireSession, remaining)
+    }
+    const markActivity = () => {
+      lastActivity = Date.now()
+      scheduleExpiration()
+    }
+    const checkAfterVisibilityChange = () => {
+      if (document.visibilityState === 'visible') scheduleExpiration()
+    }
+
+    const activityEvents: (keyof DocumentEventMap)[] = ['pointerdown', 'keydown', 'touchstart', 'scroll']
+    activityEvents.forEach((event) => document.addEventListener(event, markActivity, { passive: true }))
+    document.addEventListener('visibilitychange', checkAfterVisibilityChange)
+    scheduleExpiration()
+    return () => {
+      clearTimeout(timer)
+      activityEvents.forEach((event) => document.removeEventListener(event, markActivity))
+      document.removeEventListener('visibilitychange', checkAfterVisibilityChange)
+    }
+  }, [profile])
 
   if (checking) return <div className="splash"><div className="splash-logo"><Leaf size={25} /></div><div className="loader" /><span>Preparando tu espacio...</span></div>
   if (!isSupabaseConfigured) return <SetupScreen />
