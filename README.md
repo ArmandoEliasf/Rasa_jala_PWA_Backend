@@ -28,19 +28,19 @@ La última migración protege en la base de datos al último administrador activ
 
 La creación segura de usuarios vive en una Supabase Edge Function. Nunca se expone la clave de servicio en React.
 
-1. Instala [Supabase CLI](https://supabase.com/docs/guides/cli) y autentícate con `supabase login`.
-2. Vincula el repositorio al proyecto con `supabase link --project-ref <project-ref>`.
+1. El CLI ya está fijado como dependencia de desarrollo en `package.json`; ejecuta `npx supabase login` para autenticarte.
+2. Vincula el repositorio al proyecto con `npx supabase link --project-ref <project-ref>`.
 3. Define la URL que usarán los enlaces de invitación. Para probar localmente:
 
    ```powershell
-   supabase secrets set APP_URL=http://localhost:5174
+   npx supabase secrets set APP_URL=http://localhost:5174
    ```
 
    Para invitaciones de producción, establece la URL pública de Netlify en `APP_URL`.
 4. Despliega la función:
 
    ```powershell
-   supabase functions deploy admin-users
+   npx supabase functions deploy admin-users
    ```
 
 5. En Supabase **Authentication → URL Configuration**, añade la URL local (`http://localhost:5174/**`) y la URL pública de Netlify (`https://<sitio>.netlify.app/**`) a **Redirect URLs**.
